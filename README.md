@@ -4,19 +4,9 @@ A governance-first real-time trading platform built on [Deephaven.io](https://de
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  DEEPHAVEN SERVER  (server/)                    Port 10000   │
-│  Embedded JVM • DynamicTableWriter • Web IDE • Market sim    │
-└──────────────────────┬───────────────────────────────────────┘
-                       │ gRPC
-          ┌────────────┼────────────────┐
-    ┌─────▼────┐ ┌─────▼─────┐  ┌──────▼─────┐
-    │  Quant   │ │   Risk    │  │     PM     │
-    │  Client  │ │  Client   │  │   Client   │
-    └──────────┘ └───────────┘  └────────────┘
-
-┌──────────────────────────────────────────────────────────────┐
 │  OBJECT STORE  (store/)                                      │
 │  Embedded PG • RLS • Bi-temporal event sourcing • Append-only│
+│  connect() → pos.save() → Position.find() — Active Record   │
 │                                                              │
 │  ┌─────────────────┐  ┌──────────────┐  ┌────────────────┐  │
 │  │ Column Registry  │  │State Machines│  │   Permissions  │  │
@@ -36,7 +26,12 @@ A governance-first real-time trading platform built on [Deephaven.io](https://de
     │ Workflow  │ │   Store   │  │ Deephaven  │
     │  Engine   │ │  Bridge   │  │  Bridge    │
     │ (DBOS)    │ │ auto-save │  │ PG→DH tick │
-    └──────────┘ └───────────┘  └────────────┘
+    └──────────┘ └───────────┘  └────▲───────┘
+                                     │ gRPC
+┌────────────────────────────────────▼─────────────────────────┐
+│  DEEPHAVEN SERVER  (server/)                    Port 10000   │
+│  Embedded JVM • DynamicTableWriter • Web IDE • Market sim    │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 **403+ tests** across 6 test suites. Zero external dependencies beyond Python + PostgreSQL.
