@@ -14,18 +14,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Java (required by Deephaven)
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install all dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[server,client,dev]"
 
       - name: Run tests
-        run: pytest tests/ -x -q --ignore=tests/test_client_ops.py --ignore=tests/test_multi_client.py --ignore=tests/test_server_tables.py
+        run: pytest tests/ -x -q
 
   build:
     name: Build package
