@@ -21,9 +21,16 @@ from datetime import datetime, date
 from decimal import Decimal
 from typing import Optional
 
+from collections import namedtuple
+
 from reaktiv import Signal, Computed, Effect, batch
+from reaktiv.signal import ComputeSignal as _ComputeSignal
 
 logger = logging.getLogger(__name__)
+
+# Reactive node: one per field and one per @computed
+_RNode = namedtuple('_RNode', ['read', 'write'])
+_UNSET = object()
 
 
 class _JSONEncoder(json.JSONEncoder):
@@ -99,6 +106,10 @@ class Storable:
     # Column registry — mandatory enforcement for all subclasses
     _registry = None
 
+    # Reactive internals — class-level defaults, overwritten per-instance
+    _reactive = {}      # name → _RNode(read, write)
+    _effects = []       # Effect objects (prevent GC)
+
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         if cls._registry is not None:
@@ -117,63 +128,67 @@ class Storable:
         """Auto-create Signals for fields, Computed for @computed, Effects for @effect."""
         from reactive.computed import ComputedProperty, EffectMethod, _ReactiveProxy
 
-        # _signals: field_name → Signal
-        signals = {}
-        if dataclasses.is_dataclass(self):
-            for f in dataclasses.fields(self):
-                if f.name.startswith('_'):
-                    continue
-                signals[f.name] = Signal(getattr(self, f.name))
+        reactive = {}
 
-        object.__setattr__(self, '_signals', signals)
-        object.__setattr__(self, '_computeds', {})
-        object.__setattr__(self, '_effects', {})
-        object.__setattr__(self, '_reactive_ready', False)
+        # 1. Fields → Signal + _RNode
+        for f in dataclasses.fields(self):
+            if f.name.startswith('_'):
+                continue
+            sig = Signal(getattr(self, f.name))
+            reactive[f.name] = _RNode(read=sig, write=sig.set)
 
-        # Discover @computed descriptors on the class
-        computeds = {}
+        # 2. Computeds → Computed (with override) + _RNode
+        signals = {name: node.read for name, node in reactive.items()}
         for name in dir(type(self)):
             attr = getattr(type(self), name, None)
             if isinstance(attr, ComputedProperty):
                 cp = attr
+                override_sig = Signal(_UNSET)
+
                 if cp.expr is not None:
                     # Single-entity: evaluate Expr against signal values
-                    def _make_single(expression, sigs):
+                    def _make_single(expression, sigs, ov_sig):
                         def compute():
+                            ov = ov_sig()
+                            if ov is not _UNSET:
+                                return ov
                             ctx = {k: sig() for k, sig in sigs.items()}
                             return expression.eval(ctx)
                         return compute
-                    comp = Computed(_make_single(cp.expr, signals))
+                    comp = Computed(_make_single(cp.expr, signals, override_sig))
                 else:
                     # Cross-entity: call original function with reactive proxy
-                    def _make_cross(func, obj):
+                    def _make_cross(func, obj, ov_sig):
                         proxy = _ReactiveProxy(obj)
                         def compute():
+                            ov = ov_sig()
+                            if ov is not _UNSET:
+                                return ov
                             return func(proxy)
                         return compute
-                    comp = Computed(_make_cross(cp.fn, self))
-                computeds[name] = comp
+                    comp = Computed(_make_cross(cp.fn, self, override_sig))
 
-        object.__setattr__(self, '_computeds', computeds)
+                reactive[name] = _RNode(read=comp, write=override_sig.set)
 
-        # Discover @effect descriptors on the class
-        effects = {}
+        object.__setattr__(self, '_reactive', reactive)
+
+        # 3. Effects
+        effects = []
         for name in dir(type(self)):
             attr = getattr(type(self), name, None)
             if isinstance(attr, EffectMethod):
                 em = attr
-                target = em.target_computed
-                if target not in computeds:
+                target_node = reactive.get(em.target_computed)
+                if target_node is None:
                     raise ValueError(
-                        f"@effect '{em.name}' watches '{target}' but no "
-                        f"@computed '{target}' exists on {type(self).__name__}"
+                        f"@effect '{em.name}' watches '{em.target_computed}' "
+                        f"but no @computed exists on {type(self).__name__}"
                     )
-                comp_signal = computeds[target]
                 bound_fn = em.fn.__get__(self, type(self))
 
-                def _make_effect(callback, comp_sig):
+                def _make_effect(callback, comp):
                     def effect_fn():
-                        value = comp_sig()
+                        value = comp()
                         try:
                             callback(value)
                         except Exception:
@@ -182,28 +197,28 @@ class Storable:
                             )
                     return effect_fn
 
-                eff = Effect(_make_effect(bound_fn, comp_signal))
-                effects[name] = eff
+                eff = Effect(_make_effect(bound_fn, target_node.read))
+                effects.append(eff)
 
         object.__setattr__(self, '_effects', effects)
-        object.__setattr__(self, '_reactive_ready', True)
 
         # Tick effects once to register dependencies
         self._tick()
 
+    def __getattribute__(self, name):
+        """Route reactive field/computed reads through Signals/Computeds."""
+        node = object.__getattribute__(self, '_reactive').get(name)
+        if node is not None:
+            return node.read()
+        return object.__getattribute__(self, name)
+
     def __setattr__(self, name, value):
-        """Intercept field sets to update the corresponding Signal."""
+        """Intercept field sets to update Signals; computed sets to override."""
         object.__setattr__(self, name, value)
-        # Only cascade after reactive wiring is complete
-        try:
-            ready = object.__getattribute__(self, '_reactive_ready')
-        except AttributeError:
-            ready = False
-        if ready:
-            signals = object.__getattribute__(self, '_signals')
-            if name in signals:
-                signals[name].set(value)
-                self._tick()
+        node = object.__getattribute__(self, '_reactive').get(name)
+        if node is not None:
+            node.write(value)
+            self._tick()
 
     def batch_update(self, **kwargs):
         """Update multiple fields with a single recomputation.
@@ -211,12 +226,21 @@ class Storable:
         Usage:
             pos.batch_update(current_price=235.0, quantity=150)
         """
-        signals = object.__getattribute__(self, '_signals')
+        reactive = object.__getattribute__(self, '_reactive')
         with batch():
             for name, value in kwargs.items():
                 object.__setattr__(self, name, value)
-                if name in signals:
-                    signals[name].set(value)
+                node = reactive.get(name)
+                if node is not None:
+                    node.write(value)
+        self._tick()
+
+    def clear_override(self, name):
+        """Remove computed override, revert to formula. Ripples downstream."""
+        node = object.__getattribute__(self, '_reactive').get(name)
+        if node is None or not isinstance(node.read, _ComputeSignal):
+            raise ValueError(f"'{name}' is not a @computed")
+        node.write(_UNSET)
         self._tick()
 
     def _tick(self):

@@ -225,3 +225,23 @@ REGISTRY.define("spread_mv", float,
     description="Spread of market values",
     role="measure", unit="USD",
 )
+
+REGISTRY.define("radius", float,
+    description="Radius measurement",
+    role="measure", unit="units",
+)
+
+REGISTRY.define("diameter", float,
+    description="Computed diameter (2 × radius)",
+    role="measure", unit="units",
+)
+
+REGISTRY.define("circumference", float,
+    description="Computed circumference",
+    role="measure", unit="units",
+)
+
+REGISTRY.define("items", list,
+    description="List of items",
+    role="attribute",
+)

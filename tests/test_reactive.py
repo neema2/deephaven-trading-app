@@ -649,11 +649,11 @@ class TestSerialization:
 # ===========================================================================
 
 class TestReactiveComputed:
-    def test_object_has_signals(self):
+    def test_object_has_reactive(self):
         sensor = Sensor(name="temp", value=25.0, threshold=100.0, unit="celsius")
-        assert hasattr(sensor, '_signals')
-        assert 'value' in sensor._signals
-        assert 'name' in sensor._signals
+        assert hasattr(sensor, '_reactive')
+        assert 'value' in object.__getattribute__(sensor, '_reactive')
+        assert 'name' in object.__getattribute__(sensor, '_reactive')
 
     def test_computed_returns_correct_value(self):
         rect = Rectangle(width=10.0, height=5.0, label="test")
@@ -869,6 +869,74 @@ class TestDynamicMembership:
         assert book.total_mv == 100 * 228.0
 
 
+class TestComputedOverride:
+    """Tests for computed override (what-if) and clear_override."""
+
+    def test_override_computed_value(self):
+        pos = Position(symbol="AAPL", quantity=100, price=228.0)
+        assert pos.mv == 22800.0
+        pos.mv = 99999.0
+        assert pos.mv == 99999.0
+
+    def test_override_ripples_to_parent(self):
+        p1 = Position(symbol="AAPL", quantity=100, price=228.0)
+        p2 = Position(symbol="GOOG", quantity=50, price=192.0)
+        book = Portfolio(positions=[p1, p2])
+        original_total = 100 * 228.0 + 50 * 192.0
+        assert book.total_mv == original_total
+
+        p1.mv = 50000.0
+        assert book.total_mv == 50000.0 + 50 * 192.0
+
+    def test_clear_override_reverts_to_formula(self):
+        pos = Position(symbol="AAPL", quantity=100, price=228.0)
+        assert pos.mv == 22800.0
+        pos.mv = 99999.0
+        assert pos.mv == 99999.0
+        pos.clear_override("mv")
+        assert pos.mv == 22800.0
+
+    def test_clear_override_ripples_to_parent(self):
+        p1 = Position(symbol="AAPL", quantity=100, price=228.0)
+        book = Portfolio(positions=[p1])
+        p1.mv = 50000.0
+        assert book.total_mv == 50000.0
+        p1.clear_override("mv")
+        assert book.total_mv == 22800.0
+
+    def test_clear_override_on_field_raises(self):
+        pos = Position(symbol="AAPL", quantity=100, price=228.0)
+        with pytest.raises(ValueError, match="not a @computed"):
+            pos.clear_override("price")
+
+    def test_clear_override_on_nonexistent_raises(self):
+        pos = Position(symbol="AAPL", quantity=100, price=228.0)
+        with pytest.raises(ValueError, match="not a @computed"):
+            pos.clear_override("bogus")
+
+    def test_override_then_field_change_keeps_override(self):
+        pos = Position(symbol="AAPL", quantity=100, price=228.0)
+        pos.mv = 99999.0
+        pos.price = 300.0  # field change — but mv is overridden
+        assert pos.mv == 99999.0
+
+    def test_clear_after_field_change_uses_new_field(self):
+        pos = Position(symbol="AAPL", quantity=100, price=228.0)
+        pos.mv = 99999.0
+        pos.price = 300.0
+        pos.clear_override("mv")
+        assert pos.mv == 300.0 * 100  # formula with updated price
+
+    def test_multiple_overrides_independent(self):
+        rect = Rectangle(width=10.0, height=5.0)
+        assert rect.area == 50.0
+        rect.area = 999.0
+        assert rect.area == 999.0
+        assert rect.upper_label == ""  # other computed unaffected
+        rect.clear_override("area")
+        assert rect.area == 50.0
+
+
 class TestCrossEntityEffect:
     def test_effect_fires_on_member_change(self):
         _portfolio_log.clear()
@@ -880,3 +948,219 @@ class TestCrossEntityEffect:
         p1.price = 230.0
         assert len(_portfolio_log) > initial
         assert _portfolio_log[-1] == ("total_mv", 100 * 230.0 + 50 * 192.0)
+
+
+# ===========================================================================
+# Reactive internals coverage
+# ===========================================================================
+
+class TestReactiveInternals:
+    """Tests for internal reactive wiring: _reactive dict, _effects list, field exclusion."""
+
+    def test_effects_list_populated_for_effect_class(self):
+        _portfolio_log.clear()
+        p1 = Position(symbol="AAPL", quantity=100, price=228.0)
+        book = PortfolioWithEffect(positions=[p1])
+        effects = object.__getattribute__(book, '_effects')
+        assert isinstance(effects, list)
+        assert len(effects) > 0
+
+    def test_effects_list_empty_for_no_effects(self):
+        pos = Position(symbol="AAPL", quantity=100, price=228.0)
+        effects = object.__getattribute__(pos, '_effects')
+        assert isinstance(effects, list)
+        assert len(effects) == 0
+
+    def test_store_fields_excluded_from_reactive(self):
+        pos = Position(symbol="AAPL", quantity=100, price=228.0)
+        reactive = object.__getattribute__(pos, '_reactive')
+        # _store_* fields should NOT be reactive
+        for key in reactive:
+            assert not key.startswith('_'), f"Internal field '{key}' leaked into _reactive"
+
+    def test_reactive_contains_fields_and_computeds(self):
+        pos = Position(symbol="AAPL", quantity=100, price=228.0)
+        reactive = object.__getattribute__(pos, '_reactive')
+        # Fields
+        assert 'symbol' in reactive
+        assert 'quantity' in reactive
+        assert 'price' in reactive
+        # Computed
+        assert 'mv' in reactive
+
+    def test_reactive_node_has_read_and_write(self):
+        pos = Position(symbol="AAPL", quantity=100, price=228.0)
+        reactive = object.__getattribute__(pos, '_reactive')
+        node = reactive['price']
+        assert hasattr(node, 'read')
+        assert hasattr(node, 'write')
+        assert callable(node.read)
+        assert callable(node.write)
+
+
+# ===========================================================================
+# AST validation rejection tests
+# ===========================================================================
+
+class TestComputedASTValidation:
+    """Tests that @computed rejects unsupported Python constructs."""
+
+    def test_lambda_rejected(self):
+        with pytest.raises(ComputedParseError, match="Lambda"):
+            @dataclass
+            class Bad(Storable):
+                items: list = field(default_factory=list)
+                @computed
+                def total(self):
+                    return sum(map(lambda x: x, self.items))
+
+    def test_try_except_rejected(self):
+        with pytest.raises(ComputedParseError, match="try/except"):
+            @dataclass
+            class Bad(Storable):
+                value: float = 0.0
+                @computed
+                def safe(self):
+                    try:
+                        return self.value
+                    except Exception:
+                        return 0.0
+
+    def test_import_rejected(self):
+        with pytest.raises(ComputedParseError, match="Import"):
+            @dataclass
+            class Bad(Storable):
+                value: float = 0.0
+                @computed
+                def bad(self):
+                    import os
+                    return self.value
+
+    def test_yield_rejected(self):
+        with pytest.raises(ComputedParseError, match="yield"):
+            @dataclass
+            class Bad(Storable):
+                value: float = 0.0
+                @computed
+                def bad(self):
+                    yield self.value
+
+    def test_nested_function_rejected(self):
+        with pytest.raises(ComputedParseError, match="Nested function"):
+            @dataclass
+            class Bad(Storable):
+                value: float = 0.0
+                @computed
+                def bad(self):
+                    def helper():
+                        return 1
+                    return helper()
+
+    def test_class_def_rejected(self):
+        with pytest.raises(ComputedParseError, match="Class definition"):
+            @dataclass
+            class Bad(Storable):
+                value: float = 0.0
+                @computed
+                def bad(self):
+                    class Inner:
+                        pass
+                    return self.value
+
+
+# ===========================================================================
+# Computed referencing another computed (inline refs)
+# ===========================================================================
+
+@dataclass
+class Circle(Storable):
+    """Model where one computed references another computed."""
+    radius: float = 1.0
+
+    @computed
+    def diameter(self):
+        return self.radius * 2
+
+    @computed
+    def circumference(self):
+        return self.diameter * 3.14159
+
+    @computed
+    def area(self):
+        return self.radius * self.radius * 3.14159
+
+
+class TestComputedReferencesComputed:
+    """Tests that one @computed can depend on another @computed on the same object."""
+
+    def test_computed_reads_another_computed(self):
+        c = Circle(radius=5.0)
+        assert c.diameter == 10.0
+        assert abs(c.circumference - 31.4159) < 0.001
+
+    def test_chained_computed_reacts_to_field_change(self):
+        c = Circle(radius=5.0)
+        assert c.diameter == 10.0
+        c.radius = 10.0
+        assert c.diameter == 20.0
+        assert abs(c.circumference - 62.8318) < 0.001
+
+    def test_override_intermediate_computed(self):
+        c = Circle(radius=5.0)
+        # Override diameter — circumference should use the override
+        c.diameter = 100.0
+        assert c.diameter == 100.0
+        # circumference depends on diameter → should see override
+        assert abs(c.circumference - 314.159) < 0.001
+
+    def test_clear_intermediate_override(self):
+        c = Circle(radius=5.0)
+        c.diameter = 100.0
+        c.clear_override("diameter")
+        assert c.diameter == 10.0
+        assert abs(c.circumference - 31.4159) < 0.001
+
+
+# ===========================================================================
+# _ReactiveProxy write-through test
+# ===========================================================================
+
+class TestReactiveProxySetattr:
+    """Tests that writing through _ReactiveProxy delegates to __setattr__."""
+
+    def test_proxy_setattr_updates_field(self):
+        from reactive.computed import _ReactiveProxy
+        pos = Position(symbol="AAPL", quantity=100, price=228.0)
+        proxy = _ReactiveProxy(pos)
+        proxy.price = 300.0
+        assert pos.price == 300.0
+        assert pos.mv == 300.0 * 100
+
+    def test_proxy_setattr_triggers_recomputation(self):
+        from reactive.computed import _ReactiveProxy
+        p1 = Position(symbol="AAPL", quantity=100, price=228.0)
+        book = Portfolio(positions=[p1])
+        proxy = _ReactiveProxy(p1)
+        proxy.price = 300.0
+        assert book.total_mv == 300.0 * 100
+
+
+# ===========================================================================
+# ComputedProperty descriptor direct access
+# ===========================================================================
+
+class TestComputedPropertyDescriptor:
+    """Tests for ComputedProperty.__get__ via direct descriptor call."""
+
+    def test_class_level_returns_descriptor(self):
+        from reactive.computed import ComputedProperty
+        desc = Position.mv
+        assert isinstance(desc, ComputedProperty)
+
+    def test_descriptor_get_on_instance(self):
+        from reactive.computed import ComputedProperty
+        pos = Position(symbol="AAPL", quantity=100, price=228.0)
+        desc = type(pos).__dict__['mv']
+        # Direct descriptor call (bypasses __getattribute__)
+        val = desc.__get__(pos, type(pos))
+        assert val == 22800.0

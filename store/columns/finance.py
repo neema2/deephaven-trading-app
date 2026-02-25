@@ -347,3 +347,136 @@ REGISTRY.define("confidence", float,
     role="measure", unit="ratio",
     category="risk",
 )
+
+# ── Interest Rate Swaps / Yield Curve ─────────────────────────────
+
+REGISTRY.define("tenor_years", float,
+    description="Tenor in years (e.g. 1.0, 5.0, 10.0)",
+    semantic_type="duration",
+    role="measure",
+    unit="years",
+    format=".1f",
+    display_name="Tenor",
+    category="fixed_income",
+    synonyms=["tenor", "maturity"],
+)
+
+REGISTRY.define("fixed_rate", float,
+    description="Fixed leg coupon rate on a swap",
+    semantic_type="percentage",
+    role="measure",
+    unit="ratio",
+    format=".4%",
+    display_name="Fixed Rate",
+    category="fixed_income",
+)
+
+REGISTRY.define("float_rate", float,
+    description="Floating leg reference rate on a swap",
+    semantic_type="percentage",
+    role="measure",
+    unit="ratio",
+    format=".4%",
+    display_name="Float Rate",
+    category="fixed_income",
+)
+
+REGISTRY.define("currency", str,
+    description="ISO currency code (e.g. USD, EUR, JPY)",
+    semantic_type="identifier",
+    role="dimension",
+    max_length=3,
+    display_name="Currency",
+    category="fx",
+    synonyms=["ccy"],
+)
+
+REGISTRY.define("discount_factor", float,
+    description="Discount factor = 1 / (1 + rate) ^ tenor",
+    role="measure", unit="ratio",
+    category="fixed_income",
+)
+
+REGISTRY.define("fixed_leg_pv", float,
+    description="Present value of fixed leg cash flows",
+    role="measure", unit="USD",
+    category="fixed_income",
+)
+
+REGISTRY.define("float_leg_pv", float,
+    description="Present value of floating leg cash flows",
+    role="measure", unit="USD",
+    category="fixed_income",
+)
+
+REGISTRY.define("npv", float,
+    description="Net present value (float_leg_pv - fixed_leg_pv)",
+    role="measure", unit="USD",
+    category="fixed_income",
+)
+
+REGISTRY.define("dv01", float,
+    description="Dollar value of a basis point (rate sensitivity)",
+    role="measure", unit="USD",
+    category="risk",
+)
+
+REGISTRY.define("pnl_status", str,
+    description="P&L status label (PROFIT / LOSS / FLAT)",
+    role="attribute",
+    category="risk",
+)
+
+REGISTRY.define("avg_rate", float,
+    description="Average rate across yield curve points",
+    role="measure", unit="ratio",
+    category="fixed_income",
+)
+
+REGISTRY.define("curve_slope", float,
+    description="Yield curve slope (long rate - short rate)",
+    role="measure", unit="ratio",
+    category="fixed_income",
+)
+
+REGISTRY.define("swaps", list,
+    description="List of interest rate swap objects",
+    role="attribute",
+    category="fixed_income",
+)
+
+REGISTRY.define("curve_points", list,
+    description="List of yield curve point objects",
+    role="attribute",
+    category="fixed_income",
+)
+
+REGISTRY.define("total_npv", float,
+    description="Total NPV across all swaps in portfolio",
+    role="measure", unit="USD",
+    category="risk",
+)
+
+REGISTRY.define("total_dv01", float,
+    description="Total DV01 across all swaps in portfolio",
+    role="measure", unit="USD",
+    category="risk",
+)
+
+REGISTRY.define("max_npv", float,
+    description="Maximum NPV among portfolio swaps",
+    role="measure", unit="USD",
+    category="risk",
+)
+
+REGISTRY.define("min_npv", float,
+    description="Minimum NPV among portfolio swaps",
+    role="measure", unit="USD",
+    category="risk",
+)
+
+REGISTRY.define("swap_count", int,
+    description="Number of swaps in portfolio",
+    role="measure", unit="units",
+    category="fixed_income",
+)

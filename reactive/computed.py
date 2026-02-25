@@ -149,11 +149,10 @@ class _ASTTranslator(ast.NodeVisitor):
         if isinstance(node, ast.Attribute) and self._is_self(node.value):
             name = node.attr
             if name in self.computed_names:
-                # Reference to another @computed — will be inlined at
-                # Expr construction time by the caller, or read from proxy.
-                # For now, emit a Field placeholder that the wiring step
-                # replaces with the inlined Expr.
-                return Field(name)
+                # Reference to another @computed → cross-entity (proxy-based)
+                # so that computed overrides propagate correctly.
+                self.is_cross_entity = True
+                return None  # type: ignore[return-value]
             return Field(name)
 
         # --- p.x (attribute on non-self) — cross-entity ---
@@ -315,14 +314,11 @@ class _ReactiveProxy:
 
     def __getattr__(self, name):
         obj = object.__getattribute__(self, "_obj")
-        # Check computeds first (they're descriptors on the class)
-        computeds = object.__getattribute__(obj, "_computeds")
-        if name in computeds:
-            return computeds[name]()
-        # Then check signals (dataclass fields)
-        signals = object.__getattribute__(obj, "_signals")
-        if name in signals:
-            return signals[name]()
+        # Route through _reactive dict (unified signals + computeds)
+        reactive = object.__getattribute__(obj, "_reactive")
+        node = reactive.get(name)
+        if node is not None:
+            return node.read()
         # Fallback to regular attribute
         return getattr(obj, name)
 
@@ -354,10 +350,12 @@ class ComputedProperty:
     def __get__(self, obj, objtype=None):
         if obj is None:
             return self  # class-level: Position.pnl → descriptor
-        computeds = object.__getattribute__(obj, "_computeds")
-        if self.name in computeds:
-            return computeds[self.name]()
-        # Fallback: not yet initialized (shouldn't happen after __post_init__)
+        # __getattribute__ normally intercepts before this descriptor fires,
+        # but handle the rare direct-descriptor-call case correctly.
+        reactive = object.__getattribute__(obj, "_reactive")
+        node = reactive.get(self.name)
+        if node is not None:
+            return node.read()
         return None
 
     def __repr__(self):

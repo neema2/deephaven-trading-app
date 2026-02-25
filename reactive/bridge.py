@@ -8,6 +8,7 @@ objects — no ReactiveGraph needed.
 
 import logging
 from reaktiv import Effect
+from reaktiv.signal import ComputeSignal as _ComputeSignal
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +30,16 @@ def auto_persist_effect(obj, store_client=None):
         from store.connection import get_connection
         store_client = get_connection()._client
 
-    computeds = object.__getattribute__(obj, '_computeds')
+    reactive = object.__getattribute__(obj, '_reactive')
     effects = []
 
-    for name, comp_signal in computeds.items():
-        def make_effect(computed_name, comp_sig):
+    for name, node in reactive.items():
+        if not isinstance(node.read, _ComputeSignal):
+            continue
+
+        def make_effect(computed_name, comp):
             def effect_fn():
-                value = comp_sig()
+                value = comp()
                 try:
                     store_client.update(obj)
                 except Exception:
@@ -44,7 +48,7 @@ def auto_persist_effect(obj, store_client=None):
                     )
             return effect_fn
 
-        eff = Effect(make_effect(name, comp_signal))
+        eff = Effect(make_effect(name, node.read))
         effects.append(eff)
 
     return effects
