@@ -255,7 +255,7 @@ class StoreClient:
 
         # Validate: checks edge exists, guard passes, user is permitted
         t = sm.validate_transition(
-            current_state, new_state, context=context, user=self.user
+            current_state, new_state, context=context, user=self.user, obj=obj
         )
 
         next_ver = self._next_version(obj._store_entity_id)

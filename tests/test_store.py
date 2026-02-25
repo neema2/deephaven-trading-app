@@ -51,8 +51,6 @@ class RichObject(Storable):
             self.tags = []
 
 
-# Import Expr primitives for guards
-from reactive.expr import Field, Const
 
 
 # Action/hook trackers for testing
@@ -77,7 +75,7 @@ class OrderLifecycle(StateMachine):
         Transition("PENDING", "PARTIAL",
                    on_exit=_track_on_exit),
         Transition("PENDING", "FILLED",
-                   guard=Field("quantity") > Const(0),
+                   guard=lambda obj: obj.quantity > 0,
                    on_exit=_track_on_exit,
                    on_enter=_track_on_enter),
         Transition("PENDING", "CANCELLED",
@@ -87,7 +85,7 @@ class OrderLifecycle(StateMachine):
                    on_enter=_track_on_enter),
         Transition("PARTIAL", "CANCELLED"),
         Transition("FILLED", "SETTLED",
-                   guard=Field("price") > Const(0),
+                   guard=lambda obj: obj.price > 0,
                    action=_track_action),
     ]
 

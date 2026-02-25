@@ -1,5 +1,4 @@
-"""
-Declarative state machines for Storable lifecycle management.
+"""Declarative state machines for Storable lifecycle management.
 
 Three tiers of side-effects on each Transition:
 
@@ -8,14 +7,13 @@ Three tiers of side-effects on each Transition:
   Tier 3 — start_workflow: Durable workflow via WorkflowEngine after commit.
 
     from store.state_machine import StateMachine, Transition
-    from reactive.expr import Field, Const
 
     class OrderLifecycle(StateMachine):
         initial = "PENDING"
         transitions = [
             Transition("PENDING", "PARTIAL"),
             Transition("PENDING", "FILLED",
-                       guard=Field("quantity") > Const(0),
+                       guard=lambda obj: obj.quantity > 0,
                        action=lambda obj, f, t: create_settlement(obj),
                        on_enter=lambda obj, f, t: log.info("Filled!"),
                        start_workflow=settlement_workflow),
@@ -36,7 +34,7 @@ class Transition:
     """
     A single state machine edge with three tiers of side-effects.
 
-    - guard: Expr that must evaluate to truthy against the object's data dict.
+    - guard: Callable(obj) → bool, or legacy Expr with .eval(dict) method.
     - action: Tier 1 — callable(obj, from_state, to_state) runs inside the DB
       transaction, atomic with the state change. If it raises, state rolls back.
     - on_exit: Tier 2 — callable(obj, from_state, to_state) fires after commit,
@@ -121,9 +119,16 @@ class StateMachine:
         return None
 
     @classmethod
-    def validate_transition(cls, from_state, to_state, context=None, user=None):
+    def validate_transition(cls, from_state, to_state, context=None, user=None, obj=None):
         """
         Validate and return the Transition object.
+
+        Args:
+            from_state: Current state.
+            to_state: Desired next state.
+            context: Dict representation of the object (for legacy Expr guards).
+            user: Username for permission checks.
+            obj: The actual Storable instance (for callable guards).
 
         Raises:
             InvalidTransition — edge doesn't exist
@@ -135,10 +140,20 @@ class StateMachine:
             allowed = cls.allowed_transitions(from_state)
             raise InvalidTransition(from_state, to_state, allowed)
 
-        # Check guard
-        if t.guard is not None and context is not None:
-            if not t.guard.eval(context):
-                raise GuardFailure(from_state, to_state, t.guard)
+        # Check guard — callable (lambda) or legacy Expr (.eval)
+        if t.guard is not None:
+            if hasattr(t.guard, 'eval'):
+                # Legacy Expr guard: evaluate against dict context
+                if context is not None and not t.guard.eval(context):
+                    raise GuardFailure(from_state, to_state, t.guard)
+            elif obj is not None:
+                # Callable guard: pass the actual object
+                if not t.guard(obj):
+                    raise GuardFailure(from_state, to_state, t.guard)
+            elif context is not None:
+                # Callable guard fallback: pass dict context
+                if not t.guard(context):
+                    raise GuardFailure(from_state, to_state, t.guard)
 
         # Check permissions
         if t.allowed_by is not None and user is not None:

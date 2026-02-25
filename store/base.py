@@ -331,10 +331,10 @@ class Storable:
             raise ValueError(
                 f"Entity {self._store_entity_id} not found or deleted"
             )
-        # Copy all data fields
+        # Copy all data fields — use setattr so reactive Signals update
         if dataclasses.is_dataclass(self):
             for f in dataclasses.fields(self):
-                object.__setattr__(self, f.name, getattr(fresh, f.name))
+                setattr(self, f.name, getattr(fresh, f.name))
         # Copy store metadata
         for attr in ('_store_entity_id', '_store_version', '_store_owner',
                      '_store_updated_by', '_store_tx_time', '_store_valid_from',

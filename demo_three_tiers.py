@@ -20,7 +20,6 @@ from store.server import ObjectStoreServer
 from store.connection import connect
 from store.state_machine import StateMachine, Transition
 from store.schema import provision_user
-from reactive.expr import Field, Const
 from workflow.dbos_engine import DBOSEngine
 from workflow.dispatcher import WorkflowDispatcher
 
@@ -72,7 +71,7 @@ class OrderLifecycle(StateMachine):
     initial = "PENDING"
     transitions = [
         Transition("PENDING", "FILLED",
-                   guard=Field("quantity") > Const(0),
+                   guard=lambda obj: obj.quantity > 0,
                    action=_book_settlement,                # Tier 1: atomic
                    on_exit=_log_exit,                      # Tier 2: fire-and-forget
                    on_enter=_log_enter,                    # Tier 2: fire-and-forget
