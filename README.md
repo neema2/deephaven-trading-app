@@ -34,7 +34,7 @@ A governance-first reactive platform backed by **PostgreSQL** with **[Deephaven.
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**539 tests** across 8 test suites. Zero external dependencies beyond Python + PostgreSQL.
+**614 tests** across 13 test suites. Zero external dependencies beyond Python + PostgreSQL.
 
 ---
 
@@ -290,14 +290,13 @@ store/columns/
 Declarative lifecycle management with **three tiers of side-effects**:
 
 ```python
-from store.state_machine import StateMachine, Transition
-from reactive.expr import Field, Const
+from store import StateMachine, Transition
 
 class OrderLifecycle(StateMachine):
     initial = "PENDING"
     transitions = [
         Transition("PENDING", "FILLED",
-            guard=Field("quantity") > Const(0),
+            guard=lambda obj: obj.quantity > 0,                   # callable guard
             action=lambda obj, f, t: create_settlement(obj),    # Tier 1: atomic
             on_exit=lambda obj, f, t: log("left PENDING"),      # Tier 2: fire-and-forget
             on_enter=lambda obj, f, t: notify_risk(obj),        # Tier 2: fire-and-forget
@@ -305,7 +304,7 @@ class OrderLifecycle(StateMachine):
         Transition("PENDING", "CANCELLED",
             allowed_by=["risk_manager"]),
         Transition("FILLED", "SETTLED",
-            guard=Field("price") > Const(0)),
+            guard=lambda obj: obj.price > 0),
     ]
 
 Order._state_machine = OrderLifecycle
@@ -326,7 +325,7 @@ Everything declared on the `Transition` — one place, one DSL.
 
 | Feature | Description |
 |---------|------------|
-| **guard** | `Expr` evaluated against object data. Raises `GuardFailure` if falsy. |
+| **guard** | Callable `(obj) → bool`. Raises `GuardFailure` if falsy. |
 | **allowed_by** | Usernames permitted to trigger. Raises `TransitionNotPermitted`. |
 
 ```python
@@ -523,49 +522,41 @@ handle.get_result()   # blocks until done
 
 Backend is swappable — implement `WorkflowEngine` for Temporal, AWS Step Functions, or custom.
 
-### WorkflowDispatcher (Durable Transitions)
+### Durable Transitions
 
-For multi-step state progressions inside workflows:
+For checkpointed state transitions inside workflows — uses the active connection:
 
 ```python
-from workflow.dispatcher import WorkflowDispatcher
-
-dispatcher = WorkflowDispatcher(engine, db._client)
-
 def settlement_workflow(entity_id):
     order = engine.step(lambda: Order.find(entity_id))
     engine.step(lambda: call_clearing_house(order))
-    dispatcher.durable_transition(order, "SETTLED")   # checkpointed, exactly-once
+    engine.durable_transition(order, "SETTLED")   # checkpointed, exactly-once
 ```
 
 ---
 
 ## Event Subscriptions
 
-Two-tier notification system — zero external infrastructure:
+Unified `EventListener` — mode is determined by a single parameter:
 
 ```python
-from store.subscriptions import EventBus, SubscriptionListener
+from store import EventListener
 
-# Tier 1: In-process — synchronous callbacks after DB writes
-bus = EventBus()
-bus.on("Order", lambda e: print(f"{e.event_type} on {e.entity_id}"))
-bus.on_entity(entity_id, lambda e: recalc_risk(e))
-bus.on_all(lambda e: audit_log(e))
+# In-process only (no subscriber_id)
+listener = EventListener()
+listener.on("Order", lambda e: print(f"{e.event_type} on {e.entity_id}"))
+listener.on_entity(entity_id, lambda e: recalc_risk(e))
+listener.on_all(lambda e: audit_log(e))
 
-db = connect("trading", user="alice", password="alice_pw", event_bus=bus)
+db = connect("trading", user="alice", password="alice_pw", event_bus=listener)
 
-# Tier 2: Cross-process — PG LISTEN/NOTIFY with durable catch-up
-listener = SubscriptionListener(
-    event_bus=bus,
-    host=host, port=port, dbname=dbname,
-    user="bob", password="bob_pw",
-    subscriber_id="risk_engine",   # persists checkpoint for crash recovery
-)
-listener.start()
+# Durable cross-process (subscriber_id → PG LISTEN/NOTIFY, lazy-started)
+with EventListener(subscriber_id="risk_engine") as listener:
+    listener.on("Order", handle_order)   # PG listener starts here
+    ...
 ```
 
-With `subscriber_id`, missed events are replayed from the append-only log on reconnect.
+With `subscriber_id`, missed events are replayed from the append-only log on reconnect. The PG listener thread starts lazily on the first `.on()` call and is cleaned up by the context manager.
 
 ---
 
@@ -670,30 +661,37 @@ py-flow/
 │   ├── schema.py           # DDL: object_events table + RLS policies
 │   ├── state_machine.py    # StateMachine + 3-tier Transitions
 │   ├── permissions.py      # Share/unshare entities between users
-│   └── subscriptions.py    # EventBus + SubscriptionListener + checkpoints
+│   └── subscriptions.py    # EventListener + EventBus + SubscriptionListener
 ├── reactive/
 │   ├── expr.py             # Expression tree (eval / to_sql / to_pure)
 │   ├── computed.py         # @computed + @effect decorators, AST→Expr parser
 │   └── bridge.py           # Auto-persist effect factory
 ├── workflow/
-│   ├── engine.py           # WorkflowEngine ABC + WorkflowHandle
+│   ├── engine.py           # WorkflowEngine ABC + durable_transition()
 │   ├── dbos_engine.py      # DBOS-backed implementation (hidden)
-│   └── dispatcher.py       # WorkflowDispatcher: durable transitions
+│   └── dispatcher.py       # Legacy helper (absorbed into engine)
 ├── bridge/
 │   ├── store_bridge.py     # StoreBridge: PG NOTIFY → DH ticking tables
 │   └── type_mapping.py     # @dataclass → DH schema + row extraction
-├── tests/                  # 539 tests
+├── tests/                  # 614 tests
 │   ├── test_store.py       # Bi-temporal + state machine + RLS + 3-tier (134)
 │   ├── test_reactive.py    # Expr + @computed + @effect + overrides + cross-entity (159)
 │   ├── test_reactive_finance.py  # Finance domain @computed tests (49)
 │   ├── test_reactive_irs.py     # IRS / yield curve / swap portfolio (52)
-│   ├── test_workflow.py    # Workflow engine (16)
+│   ├── test_connection.py  # Connection management + active connection (24)
+│   ├── test_workflow.py    # Workflow engine + durable transitions (16)
 │   ├── test_bridge.py      # DH ↔ Store bridge, real DH + PG (17)
-│   └── test_registry.py    # Column registry enforcement (56)
+│   ├── test_registry.py    # Column registry enforcement (56)
+│   ├── test_client_ops.py  # Deephaven client operations (20)
+│   ├── test_multi_client.py # Multi-client DH table sharing (10)
+│   ├── test_server_tables.py # Server-side DH table verification (21)
+│   ├── test_market_data.py # Market data simulation (21)
+│   └── test_risk_engine.py # Black-Scholes risk engine (35)
 ├── demo_irs.py             # IRS reactive grid → DH ticking tables
 ├── demo_bridge.py          # Store + @computed → DH ticking tables
-├── REACTIVE.md             # Reactive properties design document
 ├── demo_three_tiers.py     # Three-tier state machine side-effects
+├── API.md                  # Functional API reference (15 public symbols)
+├── REACTIVE.md             # Reactive properties design document
 ├── requirements-server.txt
 ├── requirements-client.txt
 ├── requirements-store.txt  # reaktiv, psycopg2-binary, pgserver, dbos
