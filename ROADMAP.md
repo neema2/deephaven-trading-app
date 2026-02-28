@@ -195,7 +195,7 @@ A governance-first data+AI platform in pure Python. This roadmap tracks what's b
 │  ✅      │  ✅      │  ✅       │  ✅      │  ✅       │ ✅     │
 ├──────────┼──────────┼───────────┼──────────┼───────────┼────────┤
 │ market   │ time     │    ai     │scheduler │ platform  │lineage │
-│ data ✅  │series ✅ │   🔲      │  🔲      │   🔲      │  🔲    │
+│ data ✅  │series ✅ │   ✅      │  🔲      │   🔲      │  🔲    │
 ├──────────┴──────────┼───────────┼──────────┴───────────┼────────┤
 │      quality 🔲     │           │    dashboard 🔲      │        │
 └─────────────────────┴───────────┴──────────────────────┴────────┘

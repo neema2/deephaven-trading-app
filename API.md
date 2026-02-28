@@ -1,6 +1,6 @@
 # Functional API Reference
 
-Complete public API organized by feature area — **24 symbols** across 7 packages.
+Complete public API organized by feature area — **31 symbols** across 8 packages.
 
 ---
 
@@ -382,7 +382,7 @@ lh.close()
 
 ## 9. Media Store
 
-**Unstructured data storage & full-text search with RLS access control.**
+**Unstructured data storage & search — full-text, semantic, and hybrid.**
 
 ```python
 from media import MediaStore, Document
@@ -396,11 +396,15 @@ from media import MediaStore, Document
 ### Constructor
 
 ```python
+from ai import AI
+
+ai = AI()  # optional — enables embeddings + semantic search
 ms = MediaStore(
     s3_endpoint="localhost:9002",   # MinIO endpoint
     s3_access_key="minioadmin",     # MinIO access key
     s3_secret_key="minioadmin",     # MinIO secret key
     s3_bucket="media",              # S3 bucket name
+    ai=ai,                          # enables auto-embed on upload
 )
 ```
 
@@ -408,10 +412,12 @@ ms = MediaStore(
 
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
-| `.upload()` | `upload(source, *, filename, title, content_type, tags, metadata, extract)` | `Document` | Upload file, extract text, save metadata. |
+| `.upload()` | `upload(source, *, filename, title, content_type, tags, metadata, extract)` | `Document` | Upload file, extract text, chunk + embed (if ai= set). |
 | `.download()` | `download(doc_or_id)` | `bytes` | Download file content from S3. |
 | `.download_to()` | `download_to(doc_or_id, path)` | `Path` | Download to local file. |
-| `.search()` | `search(query, content_type=None, tags=None, limit=50)` | `list[dict]` | Full-text search with weighted ranking. |
+| `.search()` | `search(query, content_type=None, tags=None, limit=50)` | `list[dict]` | Full-text keyword search (tsvector). |
+| `.semantic_search()` | `semantic_search(query, limit=10)` | `list[dict]` | Vector similarity search on chunks (requires ai=). |
+| `.hybrid_search()` | `hybrid_search(query, limit=10)` | `list[dict]` | RRF fusion of text + semantic (requires ai=). |
 | `.list()` | `list(content_type=None, tags=None, limit=100)` | `list[Document]` | List documents with optional filters. |
 | `.delete()` | `delete(doc_or_id)` | `None` | Soft-delete (Storable semantics). S3 object retained. |
 | `.close()` | `close()` | `None` | Clean up resources. |
@@ -426,50 +432,97 @@ ms = MediaStore(
 | `text/plain`, `text/csv` | built-in | ✅ |
 | `text/markdown` | built-in (regex) | ✅ |
 | `text/html` | beautifulsoup4 | ✅ |
-| `image/*`, `audio/*`, `video/*` | — | Stored, no extraction (Phase 2) |
+| `image/*`, `audio/*`, `video/*` | — | Stored, no extraction |
 
-### Search Weights
+### Search Modes
 
-| Weight | Source |
-|--------|--------|
-| **A** (highest) | Title |
-| **B** | Filename + tags |
-| **C** | Extracted text |
-
-### Document Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `title` | `str` | Document title |
-| `filename` | `str` | Original filename |
-| `content_type` | `str` | MIME type |
-| `size` | `int` | File size in bytes |
-| `s3_key` | `str` | S3 object key |
-| `tags` | `list` | Classification tags |
-| `extracted_text` | `str` | Extracted searchable text |
-| `metadata` | `dict` | Arbitrary key-value metadata |
+| Mode | Method | How | Best for |
+|------|--------|-----|----------|
+| Full-text | `.search()` | PG tsvector weighted ranking | Exact keywords |
+| Semantic | `.semantic_search()` | pgvector cosine on chunks | Meaning-based queries |
+| Hybrid | `.hybrid_search()` | RRF fusion (k=60) | General queries |
 
 ```python
-ms = MediaStore(s3_endpoint="localhost:9002")
+from ai import AI
+from media import MediaStore
 
-# Upload
+ai = AI()
+ms = MediaStore(s3_endpoint="localhost:9002", ai=ai)
+
 doc = ms.upload("report.pdf", title="Q1 Report", tags=["research"])
+ms.search("interest rate swap")          # keywords
+ms.semantic_search("risk transfer")      # meaning
+ms.hybrid_search("credit derivatives")   # best of both
 
-# Search
-results = ms.search("interest rate swap", content_type="application/pdf")
-
-# Download
 data = ms.download(doc)
-
-# Storable features (inherited)
-history = doc.history()
-doc.share("bob", mode="read")
 ms.close()
 ```
 
 ---
 
-## 10. Time-Series Database
+## 10. AI
+
+**Embeddings, LLM generation, RAG, extraction, and tool calling.** See [AI.md](AI.md) for full docs.
+
+```python
+from ai import AI, Message, LLMResponse, ToolCall, RAGResult, ExtractionResult, Tool
+```
+
+| Symbol | Kind | Description |
+|--------|------|-------------|
+| `AI` | class | Single entry point for all AI capabilities. |
+| `Message` | dataclass | Conversation message (role + content). |
+| `LLMResponse` | dataclass | Generated text + optional tool calls + usage stats. |
+| `ToolCall` | dataclass | A tool call in `LLMResponse.tool_calls`. |
+| `RAGResult` | dataclass | Answer + sources + usage from `ai.ask()`. |
+| `ExtractionResult` | dataclass | Extracted data + raw response from `ai.extract()`. |
+| `Tool` | dataclass | Custom tool definition (name, schema, function). |
+
+### Constructor
+
+```python
+ai = AI(
+    api_key=None,          # Falls back to GEMINI_API_KEY env var
+    provider="gemini",     # Currently only "gemini" supported
+    embedding_dim=768,     # Embedding vector dimension
+    model=None,            # LLM model (default: gemini-3-flash-preview)
+)
+```
+
+### Methods
+
+| Method | Signature | Returns | Description |
+|--------|-----------|---------|-------------|
+| `.generate()` | `(messages, tools=, temperature=, max_tokens=)` | `LLMResponse` | Generate. `messages` = string or list[Message]. |
+| `.stream()` | `(messages, tools=, temperature=, max_tokens=)` | `Generator[str]` | Stream response chunks. |
+| `.ask()` | `(question, documents=, search_mode=, limit=, temperature=)` | `RAGResult` | RAG: retrieve from documents + generate answer. |
+| `.extract()` | `(text, schema, model_class=, temperature=)` | `ExtractionResult` | Extract structured data matching JSON schema. |
+| `.run_tool_loop()` | `(messages, tools=, execute_tool=, max_iterations=)` | `LLMResponse` | Generate → tool call → execute → respond loop. |
+| `.search_tools()` | `(media_store)` | `list[dict]` | Get search tool declarations for a MediaStore. |
+
+```python
+ai = AI()
+
+# Generate
+response = ai.generate("Explain convexity.")
+
+# RAG
+result = ai.ask("What are CDS?", documents=ms)
+
+# Extract
+data = ai.extract("Revenue $12.7B, EPS $8.40", schema={...})
+
+# Stream
+for chunk in ai.stream("Explain gamma hedging"):
+    print(chunk, end="")
+
+# Tool calling
+response = ai.run_tool_loop("Search for Basel docs", tools=ai.search_tools(ms))
+```
+
+---
+
+## 11. Time-Series Database
 
 **Backend-agnostic historical market data storage.**
 
@@ -509,5 +562,6 @@ See [TIMESERIES.md](TIMESERIES.md) for full details.
 | **bridge** | `StoreBridge` | 1 |
 | **lakehouse** | `Lakehouse` | 1 |
 | **media** | `MediaStore`, `Document` | 2 |
+| **ai** | `AI`, `Message`, `LLMResponse`, `ToolCall`, `RAGResult`, `ExtractionResult`, `Tool` | 7 |
 | **timeseries** | `TSDBBackend`, `TSDBConsumer`, `create_backend`, `Bar`, `HistoryQuery`, `BarQuery` | 6 |
-| **Total** | | **24** |
+| **Total** | | **31** |

@@ -34,7 +34,7 @@ A governance-first reactive platform backed by **PostgreSQL** with **[Deephaven.
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**614 tests** across 13 test suites. Zero external dependencies beyond Python + PostgreSQL.
+**675+ tests** across 15+ test suites. Zero external dependencies beyond Python + PostgreSQL.
 
 ---
 
@@ -53,8 +53,9 @@ A governance-first reactive platform backed by **PostgreSQL** with **[Deephaven.
 11. [Market Data Server](#market-data-server) — real-time WebSocket + REST
 12. [Historical Time-Series](#historical-time-series) — QuestDB tick archive
 13. [Lakehouse](#lakehouse) — Iceberg analytical store
-14. [Project Structure](#project-structure)
-15. [Demos](#demos)
+14. [AI](#ai) — embeddings, LLM, RAG, extraction, tool calling
+15. [Project Structure](#project-structure)
+16. [Demos](#demos)
 
 ---
 
@@ -694,29 +695,71 @@ All write modes include `_batch_id` and `_batch_ts` for audit. Modes with versio
 
 ## Media Store
 
-Unstructured data storage & full-text search — documents, images, audio, video. Binary files in MinIO, metadata as Storable objects in PG with tsvector search. See [MEDIA.md](MEDIA.md) for full docs.
+Unstructured data storage & search — documents, images, audio, video. Three search modes: full-text, semantic, and hybrid. See [MEDIA.md](MEDIA.md) for full docs.
 
 ```bash
-pip install -e ".[media]"
+pip install -e ".[media,ai]"
 python3 demo_media.py
 ```
 
 ```python
+from ai import AI
 from media import MediaStore
 
-ms = MediaStore(s3_endpoint="localhost:9002")
+ai = AI()  # reads GEMINI_API_KEY env var
+ms = MediaStore(s3_endpoint="localhost:9002", ai=ai)
 
-# Upload (PDF, text, markdown, HTML, images, audio, video)
+# Upload (auto-chunks + embeds when ai= is set)
 doc = ms.upload("reports/q1.pdf", title="Q1 Report", tags=["research"])
 
-# Full-text search (PG tsvector with weighted ranking)
-results = ms.search("interest rate swap", tags=["research"])
+# Search — three modes
+results = ms.search("interest rate swap")           # full-text (keywords)
+results = ms.semantic_search("risk transfer")       # vector (meaning)
+results = ms.hybrid_search("credit derivatives")    # RRF fusion (best)
 
-# Download
 data = ms.download(doc)
 ```
 
-Text extraction: PDF (pymupdf), plain text, markdown, HTML. Documents inherit all Storable features — bi-temporal audit trail, RLS access control, event sourcing, Iceberg sync.
+Text extraction: PDF (pymupdf), plain text, markdown, HTML. Documents inherit all Storable features — bi-temporal audit trail, RLS access control, event sourcing.
+
+---
+
+## AI
+
+Embeddings, LLM generation, RAG, structured extraction, and tool calling — all through a single `AI` class. Provider details are internal. See [AI.md](AI.md) for full docs.
+
+```bash
+pip install -e ".[ai,media]"
+export GEMINI_API_KEY="your-key"
+python3 demo_rag.py
+```
+
+```python
+from ai import AI, Message
+from media import MediaStore
+
+ai = AI()                                           # one key, zero provider names
+ms = MediaStore(s3_endpoint="localhost:9002", ai=ai) # auto-embeds on upload
+
+# RAG — document-grounded Q&A
+result = ai.ask("What are credit default swaps?", documents=ms)
+print(result.answer)
+
+# Structured extraction
+data = ai.extract("Revenue $12.7B, EPS $8.40", schema={...})
+
+# Direct generation
+response = ai.generate("Explain convexity in fixed income.")
+
+# Streaming
+for chunk in ai.stream("Explain gamma hedging"):
+    print(chunk, end="")
+
+# Tool calling — LLM searches documents autonomously
+response = ai.run_tool_loop("Find Basel III docs", tools=ai.search_tools(ms))
+```
+
+7 public symbols: `AI`, `Message`, `LLMResponse`, `ToolCall`, `RAGResult`, `ExtractionResult`, `Tool`.
 
 ---
 
@@ -782,8 +825,13 @@ py-flow/
 ├── media/
 │   ├── store.py            # MediaStore: upload, download, search, list, delete
 │   ├── models.py           # Document Storable + document_search schema (RLS)
+│   ├── chunking.py         # Sentence-aware text chunking with overlap
 │   ├── extraction.py       # Text extraction: PDF, text, markdown, HTML
 │   └── s3.py               # S3Client wrapper (MinIO upload/download)
+├── ai/
+│   ├── __init__.py         # 7 public symbols: AI, Message, LLMResponse, ...
+│   ├── client.py           # AI class — single user-facing entry point
+│   └── _*.py               # Private: embeddings, LLM, RAG, tools, extraction
 ├── tests/
 │   ├── test_store.py       # Bi-temporal + state machine + RLS + 3-tier (134)
 │   ├── test_reactive.py    # Expr + @computed + @effect + overrides (159)
@@ -801,8 +849,10 @@ py-flow/
 ├── demo_lakehouse.py       # Iceberg lakehouse end-to-end demo
 ├── demo_lakehouse_ingest.py  # Lakehouse ingest/transform all 4 modes
 ├── demo_media.py           # Media store: upload, extract, search
+├── demo_rag.py             # AI + RAG: upload, search, ask, extract, tools
 ├── demo_three_tiers.py     # Three-tier state machine side-effects
-├── API.md                  # REST API reference
+├── API.md                  # Functional API reference (31 symbols)
+├── AI.md                   # AI architecture: embeddings, LLM, RAG, extraction
 ├── REACTIVE.md             # Reactive properties design document
 ├── TIMESERIES.md           # Time-series architecture docs
 ├── LAKEHOUSE.md            # Lakehouse architecture docs
@@ -851,6 +901,24 @@ python3 demo_bridge.py
 | `portfolio` | DH aggregation on trades | ✅ |
 | `risk_calcs` / `risk_live` | @effect → DH writer (Pattern 3) | ❌ |
 | `risk_totals` | DH aggregation (total MV + risk) | ❌ |
+
+### `demo_rag.py` — AI + RAG Document Q&A
+
+Upload financial documents, search three ways, ask questions with RAG, extract structured data, and use tool calling — all through `from ai import AI`.
+
+```bash
+export GEMINI_API_KEY="your-key"
+python3 demo_rag.py
+```
+
+| Feature | What it shows |
+|---------|--------------|
+| Upload + auto-embed | 4 finance docs chunked + embedded on upload |
+| Search 3 modes | Full-text, semantic, hybrid (RRF) |
+| RAG Q&A | 4 questions answered with document citations |
+| Extraction | Earnings report → structured JSON |
+| Streaming | Real-time token-by-token output |
+| Tool calling | LLM autonomously searches documents |
 
 ### `demo_three_tiers.py` — Three-Tier Side-Effects
 
