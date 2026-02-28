@@ -261,3 +261,61 @@ class TestUploadWithEmbedder:
                 (str(doc._store_entity_id),),
             )
             assert cur.fetchone()[0] == 0
+
+
+@requires_gemini
+class TestSemanticSearch:
+    """Integration tests for semantic_search() on MediaStore."""
+
+    def test_semantic_search_returns_results(self, media_store_with_embed):
+        """semantic_search returns results ranked by cosine distance."""
+        # Upload a doc first
+        media_store_with_embed.upload(
+            b"Gradient descent is an optimization algorithm used in machine learning.",
+            filename="gradient.txt",
+            title="Gradient Descent",
+            tags=["ml"],
+        )
+
+        results = media_store_with_embed.semantic_search("optimization algorithms")
+        assert len(results) > 0
+        assert "distance" in results[0]
+        assert "chunk_text" in results[0]
+        assert "title" in results[0]
+        # Distance should be ordered ascending (most similar first)
+        distances = [r["distance"] for r in results]
+        assert distances == sorted(distances)
+
+    def test_semantic_search_relevance(self, media_store_with_embed):
+        """Relevant documents rank higher than irrelevant ones."""
+        media_store_with_embed.upload(
+            b"Photosynthesis converts sunlight into chemical energy in plants.",
+            filename="biology.txt",
+            title="Photosynthesis",
+            tags=["biology"],
+        )
+        media_store_with_embed.upload(
+            b"Support vector machines classify data by finding optimal hyperplanes.",
+            filename="svm.txt",
+            title="Support Vector Machines",
+            tags=["ml"],
+        )
+
+        results = media_store_with_embed.semantic_search("machine learning classification")
+        assert len(results) >= 2
+
+        # SVM doc should rank higher than photosynthesis for ML query
+        titles = [r["title"] for r in results]
+        svm_idx = next((i for i, t in enumerate(titles) if t == "Support Vector Machines"), None)
+        bio_idx = next((i for i, t in enumerate(titles) if t == "Photosynthesis"), None)
+
+        if svm_idx is not None and bio_idx is not None:
+            assert svm_idx < bio_idx, (
+                f"SVM (idx={svm_idx}) should rank higher than Photosynthesis (idx={bio_idx})"
+            )
+
+    def test_semantic_search_no_embedder_raises(self, media_store_no_embed):
+        """semantic_search without embedding provider raises ValueError."""
+        import pytest
+        with pytest.raises(ValueError, match="embedding_provider"):
+            media_store_no_embed.semantic_search("test query")

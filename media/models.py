@@ -461,3 +461,37 @@ def update_document_embedding(conn, entity_id: str, embedding: list) -> None:
             WHERE entity_id = %s
         """, (str(embedding), entity_id))
     conn.commit()
+
+
+def semantic_search_documents(conn, query_embedding: list, limit: int = 10) -> list[dict]:
+    """
+    Search document chunks by cosine similarity to a query embedding.
+
+    Joins document_chunks with document_search to return chunk text
+    alongside parent document metadata.
+
+    Args:
+        conn: PG connection.
+        query_embedding: Query embedding vector (list[float]).
+        limit: Max results (default: 10).
+
+    Returns:
+        List of dicts with entity_id, title, filename, content_type, tags,
+        chunk_index, chunk_text, distance.
+    """
+    query_vec = str(query_embedding)
+    sql = """
+        SELECT ds.entity_id, ds.title, ds.filename, ds.content_type, ds.tags,
+               dc.chunk_index, dc.chunk_text,
+               dc.embedding <=> %s::vector AS distance
+        FROM document_chunks dc
+        JOIN document_search ds ON ds.entity_id = dc.entity_id
+        WHERE dc.embedding IS NOT NULL
+        ORDER BY distance ASC
+        LIMIT %s
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (query_vec, limit))
+        columns = [desc[0] for desc in cur.description]
+        rows = cur.fetchall()
+        return [dict(zip(columns, row)) for row in rows]

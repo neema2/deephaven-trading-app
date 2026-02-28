@@ -22,6 +22,7 @@ from media.models import (
     upsert_search_index,
     delete_search_index,
     search_documents,
+    semantic_search_documents,
     upsert_document_chunks,
     update_document_embedding,
 )
@@ -228,6 +229,40 @@ class MediaStore:
         from store.connection import get_connection
         conn = get_connection()
         return search_documents(conn.conn, query, content_type, tags, limit)
+
+    def semantic_search(
+        self,
+        query: str,
+        limit: int = 10,
+    ) -> list[dict]:
+        """
+        Semantic search — embed query and find most similar document chunks.
+
+        Uses the embedding provider to convert the query to a vector,
+        then searches document_chunks by cosine distance.
+
+        Args:
+            query: Natural language search query.
+            limit: Max results (default: 10).
+
+        Returns:
+            List of dicts with entity_id, title, filename, content_type, tags,
+            chunk_index, chunk_text, distance (cosine distance, lower = more similar).
+
+        Raises:
+            ValueError: If no embedding provider is configured.
+        """
+        if not self._embedder:
+            raise ValueError(
+                "semantic_search requires an embedding_provider. "
+                "Pass embedding_provider= to MediaStore constructor."
+            )
+
+        query_embedding = self._embedder.embed_query(query)
+
+        from store.connection import get_connection
+        conn = get_connection()
+        return semantic_search_documents(conn.conn, query_embedding, limit)
 
     # ── List ──────────────────────────────────────────────────────────────
 
