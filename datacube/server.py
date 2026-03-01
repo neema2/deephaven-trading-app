@@ -117,8 +117,19 @@ def _pad_table(table: pa.Table, target_cols: list[str], target_schema: pa.Schema
 
 
 def _get_source_schema(dc) -> pa.Schema:
-    """Get the normalized Arrow schema for the ungrouped source — LIMIT 0, no data."""
-    base_dc = dc.set_group_by().set_limit(0)
+    """Get the normalized Arrow schema for the source.
+
+    When pivot_by is active, returns the pivoted schema (using a sample
+    GROUP BY on the first group field) so the tree builder's target
+    schema matches what each level query actually returns.
+    """
+    snap = dc.snapshot
+    if snap.pivot_by and snap.group_by:
+        # Pivoted schema: GROUP BY first_field + pivot → get pivoted columns
+        sample_dc = dc.set_group_by(snap.group_by[0]).set_limit(0)
+        return _normalize_arrow(sample_dc.query()).schema
+    # Flat schema: no grouping, no pivot
+    base_dc = dc.set_group_by().set_pivot_by().set_limit(0)
     return _normalize_arrow(base_dc.query()).schema
 
 
@@ -144,7 +155,7 @@ def _build_tree_result(dc, expanded_keys: set, source_schema: pa.Schema) -> pa.T
     """
     snap = dc.snapshot
     group_fields = list(snap.group_by)
-    base_dc = dc.set_group_by()  # clear group_by for sub-level queries
+    base_dc = dc.set_group_by()  # clear group_by for sub-level queries (keeps pivot_by)
 
     source_cols = [f.name for f in source_schema]
 
@@ -158,8 +169,12 @@ def _build_tree_result(dc, expanded_keys: set, source_schema: pa.Schema) -> pa.T
     chunks: list[pa.Table] = []
     indent = "\u00a0\u00a0\u00a0\u00a0\u00a0\u00a0"  # 6 non-breaking spaces per level (Perspective trims regular spaces)
 
+    has_pivot = bool(snap.pivot_by)
+
     def _emit_leaves(parent_filters: list[tuple[str, object]], depth: int):
         """Fetch and emit leaf rows (no more group fields to expand)."""
+        if has_pivot:
+            return  # Cross-tab: only show aggregated group rows, not leaf rows
         leaf_dc = base_dc.set_limit(MAX_CHILDREN)
         for f, v in parent_filters:
             leaf_dc = leaf_dc.add_filter(f, "eq", v)

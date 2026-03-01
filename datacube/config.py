@@ -5,12 +5,15 @@ All config types are immutable (frozen=True) so snapshots are hashable
 and every mutation returns a new instance.  This mirrors Legend Studio's
 ``DataCubeSnapshot`` pattern.
 
-Column separator for pivot result columns matches Legend's convention::
+Column separator for pivot result columns::
 
-    PIVOT_COLUMN_NAME_SEPARATOR = "__|__"
+    PIVOT_COLUMN_NAME_SEPARATOR = " / "
 
-    # single-pivot:   "BUY__|__quantity"
-    # multi-pivot:    "BUY__|__LIMIT__|__quantity"
+    # single-pivot:   "BUY / quantity"
+    # multi-pivot:    "BUY / LIMIT / quantity"
+
+Note: Perspective 4.x crashes on ``|`` in column names (datagrid bug),
+so we use `` / `` instead.
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ from typing import Any
 
 # ── Constants ──────────────────────────────────────────────────────────
 
-PIVOT_COLUMN_NAME_SEPARATOR = "__|__"
+PIVOT_COLUMN_NAME_SEPARATOR = " / "
 
 
 # ── Leaf / group extended columns ─────────────────────────────────────

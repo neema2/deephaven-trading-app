@@ -408,6 +408,7 @@
         let allColumns = [];
         let savedColumnOrder = null;  // visible columns in order — persists across re-queries
         let knownColumns = new Set();  // all columns we've ever seen — to detect truly new ones
+        let lastPivotBy = [];  // track pivot_by changes to reset column state
 
         cmdWs.onmessage = async (event) => {
             const msg = JSON.parse(event.data);
@@ -415,6 +416,39 @@
                 document.getElementById("status").textContent = `Error: ${msg.error}`;
                 return;
             }
+
+            // Detect pivot_by change — transform column state for new pivoted names
+            const newPivotBy = msg.state?.pivot_by || [];
+            const pivotChanged = JSON.stringify(newPivotBy) !== JSON.stringify(lastPivotBy);
+            if (pivotChanged && savedColumnOrder) {
+                const oldPivotBy = lastPivotBy;
+                lastPivotBy = newPivotBy;
+                // Transform savedColumnOrder: map old visible measures → pivoted equivalents
+                // e.g. "passengers" → "Standard / passengers", "JFK / passengers", ...
+                // or "Standard / passengers" → "passengers" (when removing pivot)
+                const sep = " / ";
+                // Extract base measure names from current savedColumnOrder
+                const visibleBases = new Set();
+                for (const col of savedColumnOrder) {
+                    if (col.startsWith("__")) continue;
+                    if (oldPivotBy.length > 0 && col.includes(sep)) {
+                        // Was pivoted — extract base: "Standard / passengers" → "passengers"
+                        const parts = col.split(sep);
+                        visibleBases.add(parts[parts.length - 1]);
+                    } else {
+                        visibleBases.add(col);
+                    }
+                }
+                // Will be applied after loadTable when we know the new column names
+                savedColumnOrder = null;
+                knownColumns = new Set();
+                // Store visible bases for filtering after reload
+                window._pivotVisibleBases = visibleBases;
+            } else if (pivotChanged) {
+                lastPivotBy = newPivotBy;
+                knownColumns = new Set();
+            }
+
             // Schema changed — server created a new versioned table
             if (msg.type === "reload" && msg.table_name) {
                 await loadTable(msg.table_name);
@@ -423,15 +457,31 @@
                 const fullConfig = await viewer.save();
                 const allTableCols = fullConfig.columns || [];
                 const allTableSet = new Set(allTableCols);
+                const sep = " / ";
 
-                if (savedColumnOrder) {
+                // If pivot just changed, filter columns to only show previously visible measures
+                if (window._pivotVisibleBases) {
+                    const bases = window._pivotVisibleBases;
+                    delete window._pivotVisibleBases;
+                    const filtered = allTableCols.filter(c => {
+                        if (c.startsWith("__")) return true;  // always show __tree__
+                        // Check if this column's base measure was visible
+                        if (c.includes(sep)) {
+                            const parts = c.split(sep);
+                            return bases.has(parts[parts.length - 1]);
+                        }
+                        return bases.has(c);
+                    });
+                    savedColumnOrder = filtered;
+                    await viewer.restore({ columns: filtered });
+                } else if (savedColumnOrder) {
                     // Keep saved visible columns that still exist
                     const ordered = savedColumnOrder.filter(c => allTableSet.has(c));
                     // Auto-add only TRULY NEW columns (never seen before)
                     const newCols = allTableCols.filter(c =>
                         !ordered.includes(c) && !knownColumns.has(c)
                     );
-                    // Put __tree__ and __depth__ at the front, other new cols at the end
+                    // Put __tree__ and __ prefixed at the front, other new cols at the end
                     const frontCols = newCols.filter(c => c.startsWith("__"));
                     const backCols = newCols.filter(c => !c.startsWith("__"));
                     const finalCols = [...frontCols, ...ordered, ...backCols];
