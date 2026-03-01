@@ -55,7 +55,7 @@ Every service follows the same pattern: **`XxxServer`** (platform/admin) → **`
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**987 tests**, zero skips, zero failures. All services auto-start in the test harness.
+**1,176 tests**, zero skips, zero failures. All services auto-start in the test harness.
 
 ---
 
@@ -75,11 +75,12 @@ Every service follows the same pattern: **`XxxServer`** (platform/admin) → **`
 12. [Market Data Server](#market-data-server) — real-time WebSocket + REST
 13. [Historical Time-Series](#historical-time-series) — QuestDB tick archive
 14. [Lakehouse](#lakehouse) — Iceberg analytical store
-15. [Media Store](#media-store) — unstructured data storage & search
-16. [AI](#ai) — embeddings, LLM, RAG, extraction, tool calling
-17. [Scheduler](#scheduler) — cron-based task execution + pipelines
-18. [Project Structure](#project-structure)
-19. [Demos](#demos)
+15. [Datacube](#datacube) — Legend-inspired pivot engine + Perspective UI
+16. [Media Store](#media-store) — unstructured data storage & search
+17. [AI](#ai) — embeddings, LLM, RAG, extraction, tool calling
+18. [Scheduler](#scheduler) — cron-based task execution + pipelines
+19. [Project Structure](#project-structure)
+20. [Demos](#demos)
 
 ---
 
@@ -775,6 +776,41 @@ All write modes include `_batch_id` and `_batch_ts` for audit. Modes with versio
 
 ---
 
+## Datacube
+
+Legend DataCube–inspired analytical pivot engine with DuckDB SQL pushdown and a Perspective interactive grid. All grouping, pivoting, filtering, and aggregation runs server-side — only result rows reach the browser. See [DATACUBE.md](DATACUBE.md) for full docs.
+
+```bash
+pip install -e ".[datacube]"
+PYTHONPATH=. python3 demos/demo_datacube_ui.py   # 3M row NYC taxi demo
+```
+
+```python
+import duckdb
+from datacube import Datacube
+
+conn = duckdb.connect()
+conn.execute("CREATE TABLE t AS SELECT * FROM read_parquet('data.parquet')")
+
+dc = Datacube(conn, source_name="t")
+dc = dc.set_group_by("sector")            # VPivot — GROUP BY
+dc = dc.set_pivot_by("side")              # HPivot — column headers
+dc = dc.add_filter("price", "gt", 100)
+dc.show()                                  # opens browser at :8050
+```
+
+| Feature | Description |
+|---------|-------------|
+| Group By (VPivot) | DuckDB `GROUP BY` pushdown, tree expand/collapse in grid |
+| Pivot By (HPivot) | Column headers from dimension values (`BUY__|__price`) |
+| Drill-down | Click group row → inline child expansion, breadcrumb navigation |
+| Per-column config | Aggregation operator, select/hide, exclude from pivot |
+| Extended columns | Leaf-level (pre-agg) and group-level (post-agg) SQL expressions |
+| Joins | LEFT/INNER joins to other tables |
+| SQL Preview | See the compiled DuckDB SQL in real time |
+
+---
+
 ## Media Store
 
 Unstructured data storage & search — documents, images, audio, video. Three search modes: full-text, semantic, and hybrid. See [MEDIA.md](MEDIA.md) for full docs.
@@ -958,6 +994,12 @@ py-flow/
 │   ├── consumer.py         # TSDBConsumer — TickBus → TSDB writer
 │   ├── models.py           # Bar, HistoryQuery, BarQuery
 │   └── backends/questdb/   # QuestDB: manager, writer (ILP), reader (PGWire)
+├── datacube/
+│   ├── config.py           # DatacubeSnapshot, column config, Filter, Sort
+│   ├── compiler.py         # Snapshot → DuckDB SQL compiler
+│   ├── engine.py           # Datacube class (user API + show())
+│   ├── server.py           # Tornado + Perspective server + tree builder
+│   └── static/index.html   # Perspective viewer + sidebar controls
 ├── lakehouse/
 │   ├── admin.py            # LakehouseServer (Lakekeeper + S3 + PG)
 │   ├── catalog.py          # PyIceberg REST catalog
@@ -994,6 +1036,8 @@ py-flow/
 │   ├── test_workflow.py       # Durable workflows + steps (16)
 │   ├── test_marketdata.py     # Multi-asset bus, WS, REST (59)
 │   ├── test_questdb_integration.py  # QuestDB + MarketDataServer (10+)
+│   ├── test_datacube.py              # Snapshot, SQL compiler, pivot, drill (72)
+│   ├── test_datacube_integration.py  # End-to-end DuckDB + Lakehouse (40)
 │   ├── test_lakehouse.py             # Schemas, sync state (34)
 │   ├── test_lakehouse_integration.py # Full round-trip PG → Iceberg → DuckDB (10)
 │   ├── test_media.py                 # Extraction, Document model (41)
@@ -1009,6 +1053,9 @@ py-flow/
 ├── demo_backtest.py        # TSDB tick collection + MA crossover backtest
 ├── demo_lakehouse.py       # Iceberg lakehouse end-to-end
 ├── demo_lakehouse_ingest.py  # Lakehouse ingest/transform all 4 modes
+├── demos/
+│   ├── demo_datacube.py       # Datacube engine headless demo
+│   └── demo_datacube_ui.py    # Datacube UI — 3M row NYC taxi + Perspective
 ├── demo_media.py           # Media store: upload, extract, search
 ├── demo_rag.py             # AI + RAG: upload, search, ask, extract, tools
 ├── demo_scheduler.py       # Scheduler: cron + pipelines + parallel execution
@@ -1020,6 +1067,7 @@ py-flow/
 ├── REACTIVE.md             # Reactive properties design
 ├── TIMESERIES.md           # Time-series architecture
 ├── LAKEHOUSE.md            # Lakehouse architecture
+├── DATACUBE.md             # Datacube engine + UI architecture
 ├── MEDIA.md                # Media store architecture
 ├── IRS_DEMO.md             # IRS reactive demo design
 ├── MARKETDATA.md           # Market data server docs
@@ -1103,6 +1151,23 @@ python3 demo_scheduler.py
 | Tick loop | Cron-based automatic firing |
 | Pause/resume | Management API |
 | Duration tracking | Per-task timing |
+
+### `demo_datacube_ui.py` — Datacube UI with NYC Taxi Data
+
+Interactive pivot grid over 2.9M NYC Yellow Taxi rides. DuckDB reads parquet directly from HTTPS — no download needed. Group by payment type, vendor, pickup zone; expand rows to see leaf data; pivot by any dimension.
+
+```bash
+PYTHONPATH=. python3 demos/demo_datacube_ui.py
+# Opens http://localhost:8050
+```
+
+| Feature | What it shows |
+|---------|--------------|
+| Group By | Aggregate 3M rows by any dimension — instant via DuckDB pushdown |
+| Tree Expand | Click ▸ to expand group → leaf rows appear inline (max 200) |
+| Pivot By | Column headers from dimension values |
+| Filters | WHERE clause pushdown |
+| SQL Preview | See compiled DuckDB SQL in real time |
 
 ### `demo_state_machine.py` — Three-Tier Side-Effects
 

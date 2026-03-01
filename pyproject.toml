@@ -69,6 +69,11 @@ media = [
 ai = [
     "google-genai>=1.0",
 ]
+datacube = [
+    "perspective-python>=4.0",
+    "tornado>=6.0",
+    "pyarrow>=14.0",
+]
 client = [
     "pydeephaven>=0.36.0",
     "pandas",
@@ -85,7 +90,7 @@ Repository = "https://github.com/neema2/py-flow"
 Issues = "https://github.com/neema2/py-flow/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["store", "reactive", "bridge", "workflow", "marketdata", "timeseries", "lakehouse", "media", "ai", "streaming"]
+packages = ["store", "reactive", "bridge", "workflow", "marketdata", "timeseries", "lakehouse", "media", "ai", "streaming", "datacube"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

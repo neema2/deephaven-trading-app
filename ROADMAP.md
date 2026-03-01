@@ -146,14 +146,14 @@ A governance-first data+AI platform in pure Python. This roadmap tracks what's b
 
 | # | Step | Status |
 |---|------|--------|
-| 41 | DatacubeConfig model — rows, columns, values, filters, sort | 🔲 |
-| 42 | SQL pushdown compiler — config → DuckDB GROUP BY / PIVOT / WHERE | 🔲 |
-| 43 | Drill-down — hierarchical expand with server-side re-query | 🔲 |
-| 44 | Extended columns — user-defined DuckDB SQL expressions | 🔲 |
-| 45 | Perspective server — Arrow → Tornado WebSocket → WASM viewer | 🔲 |
-| 46 | Datacube ↔ Perspective bridge — config change → re-query → update | 🔲 |
+| 41 | DatacubeConfig model — rows, columns, values, filters, sort | ✅ |
+| 42 | SQL pushdown compiler — config → DuckDB GROUP BY / PIVOT / WHERE | ✅ |
+| 43 | Drill-down — hierarchical expand with server-side re-query | ✅ |
+| 44 | Extended columns — user-defined DuckDB SQL expressions | ✅ |
+| 45 | Perspective server — Arrow → Tornado WebSocket → WASM viewer | ✅ |
+| 46 | Datacube ↔ Perspective bridge — config change → re-query → update | ✅ |
 | 47 | Live ticking — EventBus → debounced `table.update()` | 🔲 |
-| 48 | Bidirectional config — client pivot changes → server SQL recompile | 🔲 |
+| 48 | Bidirectional config — client pivot changes → server SQL recompile | ✅ |
 
 **New package:** `dashboard/`  
 **Dependencies:** `perspective-python`, `tornado`

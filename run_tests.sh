@@ -18,8 +18,9 @@ cd "$(dirname "$0")"
 #   19200  = QuestDB HTTP               19209  = QuestDB ILP
 #   18922  = QuestDB PG                 5488   = Lakehouse embedded PG
 #   8181   = Lakekeeper (Iceberg REST)  9002   = MinIO (S3)
+#   8050   = Datacube UI (Tornado + Perspective)
 echo "Cleaning up stale services..."
-for port in 10000 18080 19200 19209 18922 5488 8181 9002; do
+for port in 10000 18080 19200 19209 18922 5488 8181 9002 8050; do
     lsof -ti :"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
 pkill -9 -f postgres 2>/dev/null || true

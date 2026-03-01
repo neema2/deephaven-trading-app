@@ -327,6 +327,22 @@ class Datacube:
         """Serialize the current snapshot to JSON."""
         return self._snapshot.to_json()
 
+    # ── UI ─────────────────────────────────────────────────────────
+
+    def show(self, port: int = 8050, open_browser: bool = True):
+        """Open an interactive Perspective grid in the browser.
+
+        Runs a Tornado server **in-process** (like ``plt.show()``).
+        All SQL compilation and DuckDB pushdown happens in this process;
+        Perspective is the Arrow renderer.
+
+        Args:
+            port: HTTP port (default 8050).
+            open_browser: Auto-open a browser tab.
+        """
+        from datacube.server import run
+        run(self, port=port, open_browser=open_browser)
+
     # ── Internal ──────────────────────────────────────────────────
 
     def _ensure_pivot_values(self) -> DatacubeSnapshot:

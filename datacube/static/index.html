@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Datacube</title>
+
+    <!-- Perspective 4.x CDN -->
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@perspective-dev/viewer-datagrid@4.0.0/dist/cdn/perspective-viewer-datagrid.js"></script>
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@perspective-dev/viewer-d3fc@4.0.0/dist/cdn/perspective-viewer-d3fc.js"></script>
+    <link rel="stylesheet" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@perspective-dev/viewer@4.0.0/dist/css/themes.css" />
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* ── Sidebar ─────────────────────────────────────── */
+        #sidebar {
+            width: 280px;
+            min-width: 280px;
+            background: #16213e;
+            border-right: 1px solid #0f3460;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            padding: 12px;
+            gap: 12px;
+        }
+
+        #sidebar h1 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #e94560;
+            letter-spacing: 0.5px;
+        }
+
+        .section {
+            background: #1a1a2e;
+            border: 1px solid #0f3460;
+            border-radius: 6px;
+            padding: 10px;
+        }
+
+        .section-header {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .section-header .badge {
+            background: #0f3460;
+            color: #e94560;
+            font-size: 10px;
+            padding: 1px 6px;
+            border-radius: 8px;
+        }
+
+        /* Checkbox groups */
+        .checkbox-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .checkbox-group label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+
+        .checkbox-group label:hover {
+            background: rgba(233, 69, 96, 0.1);
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            accent-color: #e94560;
+        }
+
+        .dim-tag {
+            font-size: 9px;
+            padding: 1px 4px;
+            border-radius: 3px;
+            background: #0f3460;
+            color: #aaa;
+            margin-left: auto;
+        }
+
+        /* Aggregation dropdowns */
+        .agg-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .agg-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+
+        .agg-row select {
+            background: #16213e;
+            color: #e0e0e0;
+            border: 1px solid #0f3460;
+            border-radius: 3px;
+            padding: 2px 4px;
+            font-size: 11px;
+        }
+
+        .agg-row .col-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Filter builder */
+        .filter-row {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 4px;
+            align-items: center;
+        }
+
+        .filter-row select, .filter-row input {
+            background: #16213e;
+            color: #e0e0e0;
+            border: 1px solid #0f3460;
+            border-radius: 3px;
+            padding: 3px 4px;
+            font-size: 11px;
+        }
+
+        .filter-row select { width: 80px; }
+        .filter-row input { width: 70px; }
+
+        .btn {
+            background: #0f3460;
+            color: #e0e0e0;
+            border: none;
+            border-radius: 3px;
+            padding: 4px 8px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .btn:hover { background: #e94560; color: #fff; }
+
+        .btn-sm {
+            padding: 2px 6px;
+            font-size: 10px;
+        }
+
+        /* Sort */
+        .sort-row {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 4px;
+            align-items: center;
+        }
+
+        .sort-row select {
+            background: #16213e;
+            color: #e0e0e0;
+            border: 1px solid #0f3460;
+            border-radius: 3px;
+            padding: 3px 4px;
+            font-size: 11px;
+        }
+
+        /* SQL preview */
+        #sql-preview {
+            font-family: "SF Mono", "Fira Code", monospace;
+            font-size: 10px;
+            color: #aaa;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 150px;
+            overflow-y: auto;
+            padding: 6px;
+            background: #111;
+            border-radius: 4px;
+            display: none;
+        }
+
+        #sql-toggle {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        /* Status bar */
+        #status {
+            font-size: 11px;
+            color: #888;
+            padding: 6px 0;
+            border-top: 1px solid #0f3460;
+            margin-top: auto;
+        }
+
+        /* ── Grid area ───────────────────────────────────── */
+        #grid-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        perspective-viewer {
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div id="sidebar">
+        <h1>&#9671; Datacube</h1>
+
+        <!-- Group By -->
+        <div class="section">
+            <div class="section-header">
+                Group By
+                <span class="badge" id="group-by-count">0</span>
+            </div>
+            <div class="checkbox-group" id="group-by-list"></div>
+        </div>
+
+        <!-- Pivot By -->
+        <div class="section">
+            <div class="section-header">
+                Pivot By
+                <span class="badge" id="pivot-by-count">0</span>
+            </div>
+            <div class="checkbox-group" id="pivot-by-list"></div>
+        </div>
+
+        <!-- Aggregation -->
+        <div class="section">
+            <div class="section-header">Aggregation</div>
+            <div class="agg-group" id="agg-list"></div>
+        </div>
+
+        <!-- Filters -->
+        <div class="section">
+            <div class="section-header">
+                Filters
+                <button class="btn btn-sm" id="add-filter-btn">+ Add</button>
+            </div>
+            <div id="filter-list"></div>
+            <button class="btn" id="clear-filters-btn" style="margin-top:4px; display:none;">Clear All</button>
+        </div>
+
+        <!-- Sort -->
+        <div class="section">
+            <div class="section-header">
+                Sort
+                <button class="btn btn-sm" id="add-sort-btn">+ Add</button>
+            </div>
+            <div id="sort-list"></div>
+        </div>
+
+        <!-- Drill Path -->
+        <div class="section" id="drill-section">
+            <div class="section-header">
+                Drill Path
+                <div>
+                    <button class="btn btn-sm" id="drill-up-btn" style="display:none;">&#9650; Up</button>
+                    <button class="btn btn-sm" id="drill-reset-btn" style="display:none;">Reset</button>
+                </div>
+            </div>
+            <div id="drill-path" style="font-size:12px;">All (leaf rows)</div>
+        </div>
+
+        <!-- SQL Preview -->
+        <div class="section">
+            <div class="section-header" id="sql-toggle">SQL Preview &#9660;</div>
+            <pre id="sql-preview"></pre>
+        </div>
+
+        <!-- Status -->
+        <div id="status">Connecting...</div>
+    </div>
+
+    <!-- Grid -->
+    <div id="grid-area">
+        <perspective-viewer id="viewer" theme="Pro Dark"></perspective-viewer>
+    </div>
+
+    <script type="module">
+        import "https://cdn.jsdelivr.net/npm/@perspective-dev/viewer@4.0.0/dist/cdn/perspective-viewer.js";
+        import perspective from "https://cdn.jsdelivr.net/npm/@perspective-dev/client@4.0.0/dist/cdn/perspective.js";
+
+        // ── Connect to Perspective data channel ──────────
+        const viewer = document.getElementById("viewer");
+        const pspWs = await perspective.websocket(`ws://${location.host}/websocket`);
+
+        async function loadTable(name) {
+            const table = await pspWs.open_table(name);
+            await viewer.load(table);
+            viewer.setAttribute("settings", "false");
+        }
+        await loadTable("dc_0");
+
+        // ── Connect to datacube command channel ──────────
+        const cmdWs = new WebSocket(`ws://${location.host}/cmd`);
+
+        let state = null;
+        let allColumns = [];
+
+        cmdWs.onmessage = async (event) => {
+            const msg = JSON.parse(event.data);
+            if (msg.error) {
+                document.getElementById("status").textContent = `Error: ${msg.error}`;
+                return;
+            }
+            // Schema changed — server created a new versioned table
+            if (msg.type === "reload" && msg.table_name) {
+                await loadTable(msg.table_name);
+            }
+            if (msg.state) {
+                state = msg.state;
+                allColumns = state.columns;
+                renderSidebar();
+            }
+            if (msg.sql) {
+                document.getElementById("sql-preview").textContent = msg.sql;
+            }
+            if (msg.row_count !== undefined) {
+                document.getElementById("status").textContent =
+                    `${msg.row_count.toLocaleString()} rows | ${state.source || ""}`;
+            }
+        };
+
+        function send(obj) {
+            if (cmdWs.readyState === WebSocket.OPEN) {
+                cmdWs.send(JSON.stringify(obj));
+            }
+        }
+
+        // ── Sidebar rendering ────────────────────────────
+
+        function dimensions() {
+            return allColumns.filter(c => c.kind === "dimension");
+        }
+
+        function measures() {
+            return allColumns.filter(c => c.kind === "measure");
+        }
+
+        function renderSidebar() {
+            renderGroupBy();
+            renderPivotBy();
+            renderAgg();
+            renderFilters();
+            renderSort();
+            renderDrill();
+        }
+
+        // Group By
+        function renderGroupBy() {
+            const container = document.getElementById("group-by-list");
+            const selected = new Set(state.group_by);
+            document.getElementById("group-by-count").textContent = selected.size;
+
+            container.innerHTML = dimensions().map(c => `
+                <label>
+                    <input type="checkbox" value="${c.name}"
+                           ${selected.has(c.name) ? "checked" : ""} />
+                    ${c.name}
+                    <span class="dim-tag">${c.type}</span>
+                </label>
+            `).join("");
+
+            container.querySelectorAll("input").forEach(cb => {
+                cb.addEventListener("change", () => {
+                    const fields = [...container.querySelectorAll("input:checked")]
+                        .map(el => el.value);
+                    send({ cmd: "group_by", fields });
+                });
+            });
+        }
+
+        // Pivot By
+        function renderPivotBy() {
+            const container = document.getElementById("pivot-by-list");
+            const selected = new Set(state.pivot_by);
+            document.getElementById("pivot-by-count").textContent = selected.size;
+
+            container.innerHTML = dimensions().map(c => `
+                <label>
+                    <input type="checkbox" value="${c.name}"
+                           ${selected.has(c.name) ? "checked" : ""} />
+                    ${c.name}
+                    <span class="dim-tag">${c.type}</span>
+                </label>
+            `).join("");
+
+            container.querySelectorAll("input").forEach(cb => {
+                cb.addEventListener("change", () => {
+                    const fields = [...container.querySelectorAll("input:checked")]
+                        .map(el => el.value);
+                    send({ cmd: "pivot_by", fields });
+                });
+            });
+        }
+
+        // Aggregation
+        const AGG_OPS = ["sum", "avg", "count", "min", "max", "first", "last"];
+
+        function renderAgg() {
+            const container = document.getElementById("agg-list");
+            container.innerHTML = measures().map(c => `
+                <div class="agg-row">
+                    <span class="col-name">${c.name}</span>
+                    <select data-col="${c.name}">
+                        ${AGG_OPS.map(op =>
+                            `<option value="${op}" ${c.aggregate_operator === op ? "selected" : ""}>${op}</option>`
+                        ).join("")}
+                    </select>
+                </div>
+            `).join("");
+
+            container.querySelectorAll("select").forEach(sel => {
+                sel.addEventListener("change", () => {
+                    send({
+                        cmd: "column",
+                        name: sel.dataset.col,
+                        aggregate_operator: sel.value,
+                    });
+                });
+            });
+        }
+
+        // Filters
+        function renderFilters() {
+            const container = document.getElementById("filter-list");
+            const clearBtn = document.getElementById("clear-filters-btn");
+            clearBtn.style.display = state.filters.length > 0 ? "block" : "none";
+
+            container.innerHTML = state.filters.map((f, i) => `
+                <div class="filter-row">
+                    <span style="font-size:11px">${f.field} ${f.op} ${f.value ?? ""}</span>
+                    <button class="btn btn-sm" data-idx="${i}">x</button>
+                </div>
+            `).join("");
+
+            // Remove individual filter = clear all and re-add others
+            // (simplified: just show current filters as read-only)
+        }
+
+        document.getElementById("add-filter-btn").addEventListener("click", () => {
+            const container = document.getElementById("filter-list");
+            const colOpts = allColumns.map(c => `<option value="${c.name}">${c.name}</option>`).join("");
+            const ops = ["eq", "ne", "gt", "lt", "ge", "le", "like", "contains", "is_null", "is_not_null"];
+            const opOpts = ops.map(o => `<option value="${o}">${o}</option>`).join("");
+
+            const row = document.createElement("div");
+            row.className = "filter-row";
+            row.innerHTML = `
+                <select class="f-field">${colOpts}</select>
+                <select class="f-op">${opOpts}</select>
+                <input class="f-val" placeholder="value" />
+                <button class="btn btn-sm f-go">Go</button>
+            `;
+            container.appendChild(row);
+
+            row.querySelector(".f-go").addEventListener("click", () => {
+                const field = row.querySelector(".f-field").value;
+                const op = row.querySelector(".f-op").value;
+                let value = row.querySelector(".f-val").value;
+                // Try to parse as number
+                if (value && !isNaN(Number(value))) value = Number(value);
+                send({ cmd: "filter", field, op, value: value || null });
+            });
+        });
+
+        document.getElementById("clear-filters-btn").addEventListener("click", () => {
+            send({ cmd: "clear_filters" });
+        });
+
+        // Sort
+        function renderSort() {
+            const container = document.getElementById("sort-list");
+            container.innerHTML = state.sort.map(s => `
+                <div class="sort-row">
+                    <span style="font-size:11px">${s.field} ${s.descending ? "DESC" : "ASC"}</span>
+                </div>
+            `).join("");
+        }
+
+        document.getElementById("add-sort-btn").addEventListener("click", () => {
+            const container = document.getElementById("sort-list");
+            const colOpts = allColumns.map(c => `<option value="${c.name}">${c.name}</option>`).join("");
+
+            const row = document.createElement("div");
+            row.className = "sort-row";
+            row.innerHTML = `
+                <select class="s-field">${colOpts}</select>
+                <select class="s-dir">
+                    <option value="false">ASC</option>
+                    <option value="true">DESC</option>
+                </select>
+                <button class="btn btn-sm s-go">Go</button>
+            `;
+            container.appendChild(row);
+
+            row.querySelector(".s-go").addEventListener("click", () => {
+                // Collect all current sorts + new one
+                const sorts = [...state.sort, {
+                    field: row.querySelector(".s-field").value,
+                    descending: row.querySelector(".s-dir").value === "true",
+                }];
+                send({ cmd: "sort", sorts });
+            });
+        });
+
+        // Drill path
+        function renderDrill() {
+            const container = document.getElementById("drill-path");
+            const upBtn = document.getElementById("drill-up-btn");
+            const resetBtn = document.getElementById("drill-reset-btn");
+
+            const hasGroupBy = state.group_by.length > 0;
+            const hasDrill = state.drill_path.length > 0;
+
+            upBtn.style.display = hasDrill ? "inline" : "none";
+            resetBtn.style.display = hasDrill ? "inline" : "none";
+
+            if (!hasGroupBy && !hasDrill) {
+                container.innerHTML = `<span style="color:#888">All (leaf rows)</span>`;
+                return;
+            }
+
+            let crumbs = [`<span style="color:#e94560; cursor:pointer" id="drill-root">All</span>`];
+            state.drill_path.forEach((d) => {
+                const label = Object.entries(d).map(([k, v]) => `${k}=${v}`).join(", ");
+                crumbs.push(`<span style="color:#e94560">${label}</span>`);
+            });
+            if (hasGroupBy) {
+                crumbs.push(`<span style="color:#888">[grouped by ${state.group_by.join(", ")}]</span>`);
+            }
+            container.innerHTML = crumbs.join(" &#9656; ");
+
+            const rootEl = document.getElementById("drill-root");
+            if (rootEl) rootEl.addEventListener("click", () => send({ cmd: "drill_reset" }));
+        }
+
+        document.getElementById("drill-up-btn").addEventListener("click", () => {
+            send({ cmd: "drill_up" });
+        });
+
+        document.getElementById("drill-reset-btn").addEventListener("click", () => {
+            send({ cmd: "drill_reset" });
+        });
+
+        // ── Row-click expand/collapse ─────────────────────
+        viewer.addEventListener("perspective-click", (event) => {
+            // Only expand if group_by is active
+            if (!state || state.group_by.length === 0) return;
+
+            const row = event.detail?.row;
+            if (!row) return;
+
+            // Only expand group rows (depth 0), not child rows
+            if (row["__depth__"] !== 0) return;
+
+            // Build expand kwargs from group_by dimension values
+            const kwargs = {};
+            for (const dim of state.group_by) {
+                if (row[dim] !== undefined && row[dim] !== null) {
+                    kwargs[dim] = row[dim];
+                }
+            }
+
+            if (Object.keys(kwargs).length > 0) {
+                send({ cmd: "expand", ...kwargs });
+            }
+        });
+
+        // SQL toggle
+        document.getElementById("sql-toggle").addEventListener("click", () => {
+            const el = document.getElementById("sql-preview");
+            el.style.display = el.style.display === "none" ? "block" : "none";
+        });
+    </script>
+</body>
+</html>
