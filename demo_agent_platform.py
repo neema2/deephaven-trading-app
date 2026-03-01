@@ -6,9 +6,11 @@ Demo: Multi-Agent Finance Team — Full Platform Integration
 Three specialist agents collaborate using REAL platform services:
 
   1. **Market Data Agent** — reads live prices from reactive Position graph
-     (fed by MarketData server WebSocket → @computed market_value, unrealized_pnl)
+     (fed by MarketData server WebSocket → @computed market_value, unrealized_pnl),
+     queries OHLCV bars from TSDB, computes realized vol from tick data
   2. **Risk Agent** — reads @computed VaR, stress tests, and concentration
-     from reactive PortfolioRisk Storable (auto-recomputes when prices tick)
+     from reactive PortfolioRisk Storable (auto-recomputes when prices tick),
+     queries portfolio trajectory from lakehouse analytics (DuckDB)
   3. **Research Agent** — searches uploaded documents via MediaStore + RAG
 
 Platform services auto-started:
@@ -16,6 +18,9 @@ Platform services auto-started:
   - StoreServer (embedded PG for MediaStore + conversations)
   - ObjectStore (MinIO for document blobs)
   - Reactive graph: Position + PortfolioRisk Storables with @computed
+  - TsdbServer (QuestDB — records all ticks, OHLCV bars via MarketData REST)
+  - LakehouseServer (Lakekeeper + Iceberg + MinIO + DuckDB analytics)
+  - @effect on PortfolioRisk — throttled ingest to Lakehouse on VaR change
 
 The reactive graph does ALL the math. Agents just observe the results.
 
@@ -33,6 +38,10 @@ import tempfile
 import textwrap
 import threading
 import logging
+import time as _time
+from datetime import datetime, timezone, timedelta
+
+import httpx
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -42,7 +51,7 @@ logging.basicConfig(
 
 from dataclasses import dataclass, field
 from store.base import Storable
-from reactive.computed import computed
+from reactive.computed import computed, effect
 from reactive.agg import group_by, rank_by
 
 from ai import Agent, tool, AI
@@ -197,6 +206,30 @@ class PortfolioRisk(Storable):
         return rank_by([(p.symbol, p.var_1d_95) for p in self.positions],
                        as_pct=True)
 
+    _last_ingest = 0.0
+    _snapshot_count = 0
+
+    @effect("portfolio_var_95")
+    def on_var_change(self, value):
+        now = _time.time()
+        if now - PortfolioRisk._last_ingest > 5 and _lakehouse is not None:
+            PortfolioRisk._last_ingest = now
+            try:
+                _lakehouse.ingest("portfolio_snapshots", [{
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "total_value": round(self.total_value, 2),
+                    "var_95": round(self.portfolio_var_95, 2),
+                    "var_99": round(self.portfolio_var_99, 2),
+                    "var_pct_95": round(self.var_pct_95, 4),
+                    "hhi": round(self.hhi, 4),
+                    "concentration_level": self.concentration_level,
+                    "unrealized_pnl": round(self.total_unrealized_pnl, 2),
+                    "position_count": len(self.positions),
+                }], mode="append")
+                PortfolioRisk._snapshot_count += 1
+            except Exception:
+                pass
+
     def stress_test(self, scenario: str):
         """Apply a stress scenario to current live positions."""
         shocks = STRESS_SHOCKS.get(scenario)
@@ -230,6 +263,7 @@ _positions: dict[str, Position] = {}
 _portfolio_risk: PortfolioRisk = None  # type: ignore
 MD_BASE_URL = None
 _media_store = None
+_lakehouse = None      # Lakehouse client for analytics
 
 
 # ── Agent Tools (read from reactive graph) ───────────────────────────────
@@ -321,9 +355,110 @@ def run_stress_test(scenario: str) -> str:
 
 
 @tool
+def query_price_history(symbol: str, interval: str = "1m") -> str:
+    """Get OHLCV price bars for a symbol from the TSDB via MarketData REST API.
+
+    Args:
+        symbol: Ticker symbol (e.g. AAPL, NVDA).
+        interval: Bar interval — '1s', '5s', '15s', '1m', '5m', '15m', '1h'.
+    """
+    try:
+        resp = httpx.get(
+            f"{MD_BASE_URL}/md/bars/equity/{symbol}",
+            params={"interval": interval},
+            timeout=5.0,
+        )
+        if resp.status_code == 503:
+            return json.dumps({"error": "TSDB not available on MarketData server"})
+        bars = resp.json()
+        if not bars:
+            return json.dumps({"symbol": symbol, "bars": [], "message": "No bars yet"})
+        return json.dumps({
+            "symbol": symbol, "interval": interval,
+            "bar_count": len(bars),
+            "bars": bars[-20:],
+            "source": "tsdb_questdb_via_marketdata_rest",
+        }, default=str)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@tool
+def get_realized_vol(symbol: str) -> str:
+    """Compute realized volatility from TSDB tick data and compare to implied vol.
+
+    Args:
+        symbol: Ticker symbol (e.g. AAPL, NVDA).
+    """
+    try:
+        resp = httpx.get(
+            f"{MD_BASE_URL}/md/history/equity/{symbol}",
+            params={"limit": 500},
+            timeout=5.0,
+        )
+        if resp.status_code == 503:
+            return json.dumps({"error": "TSDB not available on MarketData server"})
+        ticks = resp.json()
+        prices = [t["price"] for t in ticks if "price" in t]
+        if len(prices) < 10:
+            return json.dumps({"symbol": symbol, "error": "Not enough ticks for vol calc", "tick_count": len(prices)})
+        # Log returns
+        returns = [math.log(prices[i] / prices[i-1]) for i in range(1, len(prices))]
+        realized_vol_tick = (sum(r**2 for r in returns) / len(returns)) ** 0.5
+        # Annualize (assume ~1 tick/sec, 252 trading days, 6.5h/day)
+        ticks_per_year = 252 * 6.5 * 3600
+        realized_vol_ann = realized_vol_tick * math.sqrt(ticks_per_year)
+        pos = _positions.get(symbol)
+        implied = pos.implied_vol if pos else None
+        return json.dumps({
+            "symbol": symbol,
+            "tick_count": len(prices),
+            "realized_vol_annualized": round(realized_vol_ann, 4),
+            "implied_vol": implied,
+            "vol_spread": round(realized_vol_ann - implied, 4) if implied else None,
+            "interpretation": (
+                "realized > implied → market underpricing risk"
+                if implied and realized_vol_ann > implied
+                else "realized < implied → market overpricing risk"
+            ),
+            "source": "tsdb_questdb_via_marketdata_rest",
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@tool
+def query_analytics(sql: str) -> str:
+    """Run a SQL query on the Lakehouse (Iceberg + DuckDB) over portfolio snapshots.
+
+    Available tables (use fully qualified names):
+      - lakehouse.default.portfolio_snapshots: timestamp, total_value, var_95,
+        var_99, var_pct_95, hhi, concentration_level, unrealized_pnl, position_count
+
+    Example queries:
+      - SELECT * FROM lakehouse.default.portfolio_snapshots ORDER BY timestamp
+      - SELECT max(var_95) - min(var_95) as var_range FROM lakehouse.default.portfolio_snapshots
+      - SELECT timestamp, total_value, var_pct_95 FROM lakehouse.default.portfolio_snapshots
+
+    Args:
+        sql: DuckDB SQL query string.
+    """
+    if not _lakehouse:
+        return json.dumps({"error": "Lakehouse not available"})
+    try:
+        data = _lakehouse.query(sql)
+        return json.dumps({
+            "row_count": len(data),
+            "data": data[:50],
+            "source": "lakehouse_iceberg_duckdb",
+        }, default=str)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+@tool
 def get_fx_rates() -> str:
     """Get live FX rates from the MarketData server."""
-    import httpx
     try:
         resp = httpx.get(f"{MD_BASE_URL}/md/snapshot/fx", timeout=5.0)
         if resp.status_code == 200:
@@ -506,7 +641,11 @@ RESEARCH_DOCS = [
 # ── WebSocket Price Consumer ─────────────────────────────────────────────
 
 def _start_ws_consumer(md_port: int):
-    """Background thread: consume equity ticks from MarketData WS, update positions."""
+    """Background thread: consume equity ticks from MarketData WS, update positions.
+
+    Ticks are written to QuestDB automatically by the MarketData server's
+    built-in TSDBConsumer — no manual writes needed here.
+    """
 
     async def _consume():
         import websockets
@@ -534,23 +673,27 @@ def _start_ws_consumer(md_port: int):
 
 def build_team():
     market_agent = Agent(
-        tools=[get_portfolio_positions, get_live_quote, get_fx_rates],
+        tools=[get_portfolio_positions, get_live_quote, get_fx_rates,
+               query_price_history, get_realized_vol],
         system_prompt=(
-            "You are a Market Data Specialist. All your data comes from a reactive graph "
-            "backed by live WebSocket prices from the MarketData server. "
-            "Position values (market_value, unrealized_pnl, VaR) are @computed properties "
-            "that auto-recompute when prices tick. Report all positions with current P&L."
+            "You are a Market Data Specialist. Your data comes from: "
+            "(1) a reactive graph backed by live WebSocket prices, "
+            "(2) QuestDB TSDB recording all ticks — query OHLCV bars and compute realized vol "
+            "via MarketData REST API. Report positions, trends, and vol analysis."
         ),
         name="market_data",
     )
 
     risk_agent = Agent(
-        tools=[get_portfolio_risk, run_stress_test],
+        tools=[get_portfolio_risk, run_stress_test, query_analytics],
         system_prompt=(
-            "You are a Risk Analyst. Your tools read from a reactive PortfolioRisk graph "
-            "where VaR, concentration (HHI), and sector weights are @computed from live "
-            "Position prices. Run at least 2 stress test scenarios. "
-            "Rank the top 3 risks and recommend specific, actionable hedges."
+            "You are a Risk Analyst. Your tools read from: "
+            "(1) reactive PortfolioRisk graph (@computed VaR, HHI, sector weights), "
+            "(2) Lakehouse analytics (Iceberg + DuckDB SQL over portfolio_snapshots). "
+            "Run stress tests, query how VaR has changed over the session, "
+            "and recommend specific hedges. Use fully qualified table names: "
+            "lakehouse.default.portfolio_snapshots (cols: timestamp, total_value, "
+            "var_95, var_99, var_pct_95, hhi, concentration_level, unrealized_pnl, position_count)."
         ),
         name="risk_analyst",
     )
@@ -587,11 +730,11 @@ HOLDINGS = {
 
 
 def main():
-    global MD_BASE_URL, _media_store, _portfolio_risk
+    global MD_BASE_URL, _media_store, _portfolio_risk, _lakehouse
 
     print("=" * 70)
     print("  MULTI-AGENT FINANCE TEAM — Full Platform Integration")
-    print("  Reactive Graph + Live MarketData + MediaStore RAG")
+    print("  Reactive Graph + MarketData + QuestDB + Lakehouse + RAG")
     print("=" * 70)
 
     if not os.environ.get("GEMINI_API_KEY"):
@@ -633,19 +776,48 @@ def main():
     media_srv.register_alias("demo-agent")
     print("  ✓ ObjectStore (MinIO on port 9072)")
 
-    # 3. MarketData Server
+    # 3. TsdbServer (QuestDB) — start BEFORE MarketData so it auto-connects
+    from timeseries.admin import TsdbServer
+    tmpdir_tsdb = tempfile.mkdtemp(prefix="demo_agent_tsdb_")
+    tsdb_server = TsdbServer(data_dir=tmpdir_tsdb)
+    asyncio.run(tsdb_server.start())
+    tsdb_server.register_alias("demo-agent")
+    print(f"  ✓ TsdbServer (QuestDB: HTTP={tsdb_server.http_port}, ILP={tsdb_server.ilp_port}, PG={tsdb_server.pg_port})")
+
+    # 4. MarketData Server — detects running QuestDB, TSDBConsumer writes ticks automatically
     from marketdata.admin import MarketDataServer
     md_server = MarketDataServer(port=8765)
     asyncio.run(md_server.start())
     MD_BASE_URL = f"http://localhost:{md_server.port}"
-    print(f"  ✓ MarketData Server on port {md_server.port} (live SimulatorFeed)")
+    print(f"  ✓ MarketData Server on port {md_server.port} (SimulatorFeed → QuestDB)")
+
+    # 5. LakehouseServer (EmbeddedPG + Lakekeeper + MinIO)
+    from lakehouse.admin import LakehouseServer
+    tmpdir_lh = tempfile.mkdtemp(prefix="lh_", dir="/tmp")
+    lh_server = LakehouseServer(
+        data_dir=tmpdir_lh,
+        s3_api_port=9082, s3_console_port=9083,
+    )
+    asyncio.run(lh_server.start())
+    lh_server.register_alias("demo-agent")
+    print(f"  ✓ LakehouseServer (Lakekeeper + Iceberg + MinIO on 9082)")
+
+    # Create Lakehouse client + portfolio_snapshots table
+    from lakehouse import Lakehouse
+    _lakehouse = Lakehouse("demo-agent")
+    _lakehouse.ingest("portfolio_snapshots", [{
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "total_value": 0.0, "var_95": 0.0, "var_99": 0.0,
+        "var_pct_95": 0.0, "hhi": 0.0, "concentration_level": "unknown",
+        "unrealized_pnl": 0.0, "position_count": 0,
+    }], mode="append")
+    print("  ✓ Lakehouse client connected, portfolio_snapshots table created")
 
     # ── Build Reactive Graph ─────────────────────────────────────────
     section("Building reactive graph (Position + PortfolioRisk)")
 
     # Seed initial prices from REST snapshot
-    import time, httpx
-    time.sleep(2)
+    _time.sleep(2)
     try:
         resp = httpx.get(f"{MD_BASE_URL}/md/snapshot/equity", timeout=5.0)
         live_prices = resp.json() if resp.status_code == 200 else {}
@@ -676,13 +848,18 @@ def main():
     print(f"  Concentration:  {_portfolio_risk.concentration_level} (HHI={_portfolio_risk.hhi:.4f})")
     print(f"  Sectors:        {_portfolio_risk.sector_weights}")
 
-    # 4. Start WS consumer (prices auto-update positions → graph recomputes)
+    # ── Start WS Consumer ───────────────────────────────────────────
+    section("Starting live data pipeline")
+
+    # WS consumer: prices → reactive graph (which triggers @effect → Lakehouse)
+    # Ticks → QuestDB is handled automatically by MarketData server's TSDBConsumer
     ws_thread = threading.Thread(
         target=_start_ws_consumer, args=(md_server.port,),
         daemon=True, name="agent-ws-consumer",
     )
     ws_thread.start()
     print("  ✓ WebSocket consumer started (prices → reactive graph)")
+    print("  ✓ @effect(portfolio_var_95) → throttled Lakehouse ingest on VaR change")
 
     # ── Connect user + create MediaStore ─────────────────────────────
     section("Setting up AI + MediaStore")
@@ -714,9 +891,10 @@ def main():
     print(f"  ✓ Hybrid search verified ({len(results)} results for 'NVDA risk')")
 
     # ── Let graph tick for a moment ──────────────────────────────────
-    print("\n  ⏳ Letting prices tick for 3 seconds...")
-    time.sleep(3)
+    print("\n  ⏳ Letting prices tick for 10 seconds (building QuestDB history + Lakehouse snapshots)...")
+    _time.sleep(10)
     print(f"  Portfolio value now: ${_portfolio_risk.total_value:,.2f}")
+    print(f"  Lakehouse snapshots: {PortfolioRisk._snapshot_count}")
 
     # ── Part 1: Team Analysis ────────────────────────────────────────
     section("Running Multi-Agent Team Analysis")
@@ -764,8 +942,15 @@ def main():
             get_portfolio_positions, get_live_quote, get_portfolio_risk,
             get_fx_rates, run_stress_test,
             search_research, ask_research,
+            query_price_history, get_realized_vol, query_analytics,
         ],
-        system_prompt="You are a financial analyst reading from a reactive portfolio graph and research RAG.",
+        system_prompt=(
+            "You are a financial analyst with access to: "
+            "(1) reactive portfolio graph (live prices, VaR, stress tests), "
+            "(2) QuestDB TSDB (OHLCV bars, realized vol via MarketData REST), "
+            "(3) Lakehouse analytics (Iceberg + DuckDB SQL over lakehouse.default.portfolio_snapshots), "
+            "(4) research RAG (hybrid search + Q&A)."
+        ),
     )
 
     cases = [
@@ -785,6 +970,16 @@ def main():
             tags=["risk"],
         ),
         EvalCase(
+            input="Show me NVDA's recent price bars from the time-series database",
+            expected_tools=["query_price_history"],
+            tags=["tsdb"],
+        ),
+        EvalCase(
+            input="How has portfolio VaR changed over this session? Query the analytics.",
+            expected_tools=["query_analytics"],
+            tags=["lakehouse"],
+        ),
+        EvalCase(
             input="What does our research say about Tesla's competitive position?",
             expected_tools=["search_research"],
             expected_output_contains=["Tesla"],
@@ -798,9 +993,14 @@ def main():
 
     # ── Cleanup ──────────────────────────────────────────────────────
     section("Cleanup")
+    print(f"  Lakehouse snapshots: {PortfolioRisk._snapshot_count}")
     _media_store.close()
+    if _lakehouse:
+        _lakehouse.close()
     conn.close()
     asyncio.run(md_server.stop())
+    asyncio.run(lh_server.stop())
+    asyncio.run(tsdb_server.stop())
     store.stop()
     print("  ✓ All services stopped")
     print("\n  Done! 🎯")
