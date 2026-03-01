@@ -396,6 +396,7 @@
 
         let state = null;
         let allColumns = [];
+        let savedColumnOrder = null;  // persists across re-queries
 
         cmdWs.onmessage = async (event) => {
             const msg = JSON.parse(event.data);
@@ -411,6 +412,17 @@
                 state = msg.state;
                 allColumns = state.columns;
                 renderSidebar();
+            }
+            // Re-apply saved column order after data updates
+            if (savedColumnOrder) {
+                try {
+                    const config = await viewer.save();
+                    const available = new Set(config.columns || []);
+                    // Keep only columns that still exist, append any new ones
+                    const ordered = savedColumnOrder.filter(c => available.has(c));
+                    const newCols = (config.columns || []).filter(c => !ordered.includes(c));
+                    await viewer.restore({ columns: [...ordered, ...newCols] });
+                } catch(e) {}
             }
             if (msg.sql) {
                 document.getElementById("sql-preview").textContent = msg.sql;
@@ -703,6 +715,139 @@
             const el = document.getElementById("sql-preview");
             el.style.display = el.style.display === "none" ? "block" : "none";
         });
+
+        // ── Shadow DOM hack: drag-and-drop column reorder ────
+        // We intercept mousedown in CAPTURE phase to block Perspective's sort handler
+        // (which calls preventDefault, killing native drag). Then we handle:
+        //   - Click (no movement) → sort via viewer API
+        //   - Drag (movement > 5px) → HTML5 drag-and-drop reorder
+        (async function setupColumnDragDrop() {
+            await viewer.flush();
+
+            let dragSrcCol = null;
+
+            function getHeaders() {
+                const dg = viewer.querySelector("perspective-viewer-datagrid");
+                if (!dg) return [];
+                const rt = dg.querySelector("regular-table");
+                if (!rt) return [];
+                const thead = rt.querySelector("thead");
+                if (!thead) return [];
+                return [...thead.querySelectorAll("th")];
+            }
+
+            function getColName(th) {
+                // Header text, stripping sort arrows
+                return th.textContent.replace(/[▲▼↑↓⬆⬇]/g, "").trim();
+            }
+
+            function attachHandlers() {
+                const ths = getHeaders();
+                // headers found: ths.length
+
+                ths.forEach(th => {
+                    if (th._hackSetup) return;
+                    th._hackSetup = true;
+                    th.setAttribute("draggable", "true");
+
+                    // CAPTURE phase mousedown — block Perspective's handler
+                    let downX = 0, downY = 0, isDrag = false;
+                    th.addEventListener("mousedown", (e) => {
+                        downX = e.clientX;
+                        downY = e.clientY;
+                        isDrag = false;
+                        // Block Perspective's sort handler from calling preventDefault
+                        e.stopImmediatePropagation();
+                    }, true);  // capture = true
+
+                    // Track movement to detect drag vs click
+                    th.addEventListener("mousemove", (e) => {
+                        if (Math.abs(e.clientX - downX) + Math.abs(e.clientY - downY) > 5) {
+                            isDrag = true;
+                        }
+                    });
+
+                    // Click (no drag) → sort
+                    th.addEventListener("mouseup", async (e) => {
+                        if (isDrag) return;
+                        const colName = getColName(th);
+                        if (!colName) return;
+                        const config = await viewer.save();
+                        const curSort = config.sort || [];
+                        // Toggle: none → asc → desc → none
+                        const existing = curSort.find(s => s[0] === colName);
+                        let newSort;
+                        if (!existing) {
+                            newSort = [[colName, "asc"]];
+                        } else if (existing[1] === "asc") {
+                            newSort = [[colName, "desc"]];
+                        } else {
+                            newSort = [];
+                        }
+                        await viewer.restore({ sort: newSort });
+                    });
+
+                    // Drag events for reorder
+                    th.addEventListener("dragstart", (e) => {
+                        dragSrcCol = getColName(th);
+                        th.style.opacity = "0.4";
+                        e.dataTransfer.effectAllowed = "move";
+                        e.dataTransfer.setData("text/plain", dragSrcCol);
+                    });
+
+                    th.addEventListener("dragover", (e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        th.style.borderLeft = "3px solid #e94560";
+                    });
+
+                    th.addEventListener("dragleave", () => {
+                        th.style.borderLeft = "";
+                    });
+
+                    th.addEventListener("dragend", () => {
+                        th.style.opacity = "1";
+                        getHeaders().forEach(t => { t.style.borderLeft = ""; });
+                    });
+
+                    th.addEventListener("drop", async (e) => {
+                        e.preventDefault();
+                        th.style.borderLeft = "";
+                        const dropCol = getColName(th);
+                        if (!dragSrcCol || dragSrcCol === dropCol) return;
+
+                        const config = await viewer.save();
+                        const cols = [...(config.columns || [])];
+                        const srcIdx = cols.indexOf(dragSrcCol);
+                        const dstIdx = cols.indexOf(dropCol);
+                        if (srcIdx < 0 || dstIdx < 0) return;
+
+                        cols.splice(srcIdx, 1);
+                        cols.splice(dstIdx, 0, dragSrcCol);
+                        savedColumnOrder = [...cols];  // persist across re-queries
+                        await viewer.restore({ columns: cols });
+                        dragSrcCol = null;
+                        setTimeout(attachHandlers, 300);
+                    });
+                });
+            }
+
+            // Attach + re-attach on config changes, scroll, table loads
+            setTimeout(attachHandlers, 500);
+            viewer.addEventListener("perspective-config-update", () => setTimeout(attachHandlers, 200));
+            // MutationObserver on regular-table for re-renders
+            const dg = viewer.querySelector("perspective-viewer-datagrid");
+            const rt = dg?.querySelector("regular-table");
+            if (rt) {
+                new MutationObserver(() => setTimeout(attachHandlers, 50))
+                    .observe(rt, { childList: true, subtree: true });
+            }
+            const origLoadTable = loadTable;
+            loadTable = async function(name) {
+                await origLoadTable(name);
+                setTimeout(attachHandlers, 500);
+            };
+        })();
     </script>
 </body>
 </html>
