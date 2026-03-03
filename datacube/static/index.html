@@ -6,7 +6,7 @@
     <title>Datacube</title>
 
     <!-- Perspective 4.x CDN -->
-    <script type="module" src="https://cdn.jsdelivr.net/npm/@perspective-dev/viewer-datagrid@4.0.0/dist/cdn/perspective-viewer-datagrid.js"></script>
+    <script type="module" src="/perspective-viewer-datagrid.js"></script>
     <script type="module" src="https://cdn.jsdelivr.net/npm/@perspective-dev/viewer-d3fc@4.0.0/dist/cdn/perspective-viewer-d3fc.js"></script>
     <link rel="stylesheet" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/@perspective-dev/viewer@4.0.0/dist/css/themes.css" />
 
@@ -426,7 +426,7 @@
                 // Transform savedColumnOrder: map old visible measures → pivoted equivalents
                 // e.g. "passengers" → "Standard / passengers", "JFK / passengers", ...
                 // or "Standard / passengers" → "passengers" (when removing pivot)
-                const sep = " / ";
+                const sep = "|";
                 // Extract base measure names from current savedColumnOrder
                 const visibleBases = new Set();
                 for (const col of savedColumnOrder) {
@@ -457,7 +457,7 @@
                 const fullConfig = await viewer.save();
                 const allTableCols = fullConfig.columns || [];
                 const allTableSet = new Set(allTableCols);
-                const sep = " / ";
+                const sep = "|";
 
                 // If pivot just changed, filter columns to only show previously visible measures
                 if (window._pivotVisibleBases) {

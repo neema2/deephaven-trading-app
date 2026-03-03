@@ -12,9 +12,11 @@ from marketdata.models import (
 from marketdata.bus import TickBus
 from marketdata.feed import MarketDataFeed
 from marketdata.feeds.simulator import SimulatorFeed
+from marketdata.client import MarketDataClient
 
 __all__ = [
     "Tick", "RiskTick", "FXTick", "CurveTick", "MarketDataMessage",
     "Subscription", "SnapshotResponse", "get_symbol_key",
     "TickBus", "MarketDataFeed", "SimulatorFeed",
+    "MarketDataClient",
 ]

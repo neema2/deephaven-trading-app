@@ -26,7 +26,7 @@ from typing import Any
 
 # ── Constants ──────────────────────────────────────────────────────────
 
-PIVOT_COLUMN_NAME_SEPARATOR = " / "
+PIVOT_COLUMN_NAME_SEPARATOR = "|"
 
 
 # ── Leaf / group extended columns ─────────────────────────────────────

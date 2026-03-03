@@ -7,28 +7,63 @@ Usage::
 
     from streaming import StreamingClient
 
-    with StreamingClient() as c:
+    # Via alias (registered by StreamingServer)
+    with StreamingClient("demo") as c:
         tables = c.list_tables()
+
+    # Or explicit host/port (backward compat)
+    with StreamingClient(host="localhost", port=10000) as c:
         df = c.open_table("prices_live").to_arrow().to_pandas()
         c.run_script('filtered = prices_live.where(["Symbol = `AAPL`"])')
 """
 
 from __future__ import annotations
 
+from typing import Optional
+
 
 class StreamingClient:
     """Lightweight client for querying a remote streaming server.
 
-    Connects via pydeephaven (no Java needed on the client machine).
+    Connects via alias or explicit host/port.
+    Uses pydeephaven (no Java needed on the client machine).
     """
 
-    def __init__(self, host: str = "localhost", port: int = 10000):
+    def __init__(
+        self,
+        alias_or_host: Optional[str] = None,
+        port: Optional[int] = None,
+        *,
+        host: Optional[str] = None,
+    ):
         from pydeephaven import Session
 
-        self.host = host
-        self.port = port
-        self.session = Session(host=host, port=port)
-        print(f"Connected to streaming server at {host}:{port}")
+        resolved = self._resolve(alias_or_host, host, port)
+        self.host = resolved.get("host", "localhost")
+        self.port = resolved.get("port", 10000)
+        self.session = Session(host=self.host, port=self.port)
+        print(f"Connected to streaming server at {self.host}:{self.port}")
+
+    @staticmethod
+    def _resolve(
+        alias_or_host: Optional[str],
+        host: Optional[str],
+        port: Optional[int],
+    ) -> dict:
+        """Resolve alias or explicit host/port."""
+        # If first arg given with no port, try alias resolution
+        if alias_or_host is not None and port is None and host is None:
+            from streaming._registry import resolve_alias
+            resolved = resolve_alias(alias_or_host)
+            if resolved is not None:
+                return {"host": "localhost", "port": resolved["port"]}
+            # Not an alias — treat as host
+            return {"host": alias_or_host, "port": 10000}
+        # Explicit params
+        return {
+            "host": alias_or_host or host or "localhost",
+            "port": port or 10000,
+        }
 
     def list_tables(self):
         """Return names of all tables in the server's global scope."""
