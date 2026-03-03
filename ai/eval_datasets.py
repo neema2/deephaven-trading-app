@@ -17,6 +17,11 @@ Usage::
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from lakehouse.query import Lakehouse
+    from media.store import MediaStore
 
 from ai.eval import EvalCase
 
@@ -54,7 +59,7 @@ def tool_use_cases() -> list[EvalCase]:
     ]
 
 
-def qa_cases(media_store, limit: int = 5) -> list[EvalCase]:
+def qa_cases(media_store: MediaStore, limit: int = 5) -> list[EvalCase]:
     """
     Generate QA eval cases from uploaded documents.
 
@@ -84,7 +89,7 @@ def qa_cases(media_store, limit: int = 5) -> list[EvalCase]:
     return cases
 
 
-def sql_cases(lakehouse) -> list[EvalCase]:
+def sql_cases(lakehouse: Lakehouse) -> list[EvalCase]:
     """
     Generate SQL eval cases from lakehouse tables.
 

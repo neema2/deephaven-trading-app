@@ -10,9 +10,13 @@ These are used by EvalDimension objects in the framework.
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agents._eval.framework import AgentEvalCase
 
 
-def score_naming_conventions(case, artifacts: dict) -> float:
+def score_naming_conventions(case: AgentEvalCase, artifacts: dict) -> float:
     """Score whether created artifacts follow naming conventions.
 
     Checks:
@@ -45,7 +49,7 @@ def score_naming_conventions(case, artifacts: dict) -> float:
     return sum(scores) / len(scores) if scores else 1.0
 
 
-def score_type_appropriateness(case, artifacts: dict) -> float:
+def score_type_appropriateness(case: AgentEvalCase, artifacts: dict) -> float:
     """Score whether field types are appropriate for their names.
 
     Heuristic: fields named *_id, *_count → int; *_price, *_amount → float;
@@ -78,7 +82,7 @@ def score_type_appropriateness(case, artifacts: dict) -> float:
     return sum(scores) / len(scores) if scores else 1.0
 
 
-def score_schema_completeness(case, artifacts: dict) -> float:
+def score_schema_completeness(case: AgentEvalCase, artifacts: dict) -> float:
     """Score whether the schema has a reasonable number of fields.
 
     A schema with 0 fields is 0.0. Schemas with 2+ fields get at least 0.5.
@@ -104,7 +108,7 @@ def score_schema_completeness(case, artifacts: dict) -> float:
     return min(base, 1.0)
 
 
-def score_row_count_preservation(case, artifacts: dict) -> float:
+def score_row_count_preservation(case: AgentEvalCase, artifacts: dict) -> float:
     """Score whether ingestion preserved all rows.
 
     Compares rows_written to expected row count (if specified in case).
@@ -126,7 +130,7 @@ def score_row_count_preservation(case, artifacts: dict) -> float:
     return min(actual_count / expected_count, 1.0)
 
 
-def score_star_schema_design(case, artifacts: dict) -> float:
+def score_star_schema_design(case: AgentEvalCase, artifacts: dict) -> float:
     """Score the quality of a star schema design.
 
     Checks:
@@ -184,7 +188,7 @@ def score_star_schema_design(case, artifacts: dict) -> float:
     return sum(scores) / len(scores) if scores else 0.5
 
 
-def score_sql_validity(case, artifacts: dict) -> float:
+def score_sql_validity(case: AgentEvalCase, artifacts: dict) -> float:
     """Basic SQL validity check — does the SQL parse without obvious errors?
 
     Not a full parser — just catches common issues.

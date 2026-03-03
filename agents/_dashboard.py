@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 from ai import Agent, tool
 
@@ -373,7 +374,7 @@ def create_dashboard_tools(ctx: _PlatformContext) -> list:
             setup_store_bridge, create_reactive_model, publish_table] + codegen_tools
 
 
-def create_dashboard_agent(ctx: _PlatformContext, **kwargs) -> Agent:
+def create_dashboard_agent(ctx: _PlatformContext, **kwargs: Any) -> Agent:
     """Create a Dashboard Agent bound to a _PlatformContext."""
     tools = create_dashboard_tools(ctx)
     return Agent(

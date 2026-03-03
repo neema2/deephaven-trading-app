@@ -20,7 +20,7 @@ from store.columns import (
 
 
 # Auto-import agent-generated column modules (no agent dependency)
-def _load_agent_columns():
+def _load_agent_columns() -> None:
     import importlib.util
     import logging
     import sys

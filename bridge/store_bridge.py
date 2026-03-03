@@ -16,13 +16,19 @@ Usage:
     orders_live = orders_raw.last_by("EntityId")   # auto-locked!
 """
 
+from __future__ import annotations
+
 import dataclasses
+from typing import TYPE_CHECKING
 
 from store.client import StoreClient
 from store.subscriptions import ChangeEvent, EventBus, SubscriptionListener
 from streaming import TickingTable
 
 from bridge.type_mapping import extract_row, infer_schema
+
+if TYPE_CHECKING:
+    from reactive.expr import Expr
 
 
 class _Registration:
@@ -37,7 +43,7 @@ class _Registration:
         "type_name",
     )
 
-    def __init__(self, storable_cls, ticking, column_names, filter_expr) -> None:
+    def __init__(self, storable_cls: type, ticking: TickingTable, column_names: list[str], filter_expr: Expr | None) -> None:
         self.storable_cls = storable_cls
         self.type_name = storable_cls.type_name()
         self.ticking = ticking
@@ -63,10 +69,10 @@ class StoreBridge:
                              user="alice", password="pw")
     """
 
-    def __init__(self, alias_or_host=None, port=None, dbname=None,
-                 user=None, password=None, *,
-                 host=None,
-                 subscriber_id="deephaven_bridge") -> None:
+    def __init__(self, alias_or_host: str | None = None, port: int | None = None, dbname: str | None = None,
+                 user: str | None = None, password: str | None = None, *,
+                 host: str | None = None,
+                 subscriber_id: str = "deephaven_bridge") -> None:
         # Resolve alias vs explicit params
         if alias_or_host is not None and port is None and host is None:
             # Looks like an alias — try to resolve
@@ -100,7 +106,7 @@ class StoreBridge:
 
     # ── Registration ─────────────────────────────────────────────────
 
-    def register(self, storable_cls, *, filter=None, columns=None):
+    def register(self, storable_cls: type, *, filter: Expr | None = None, columns: dict | None = None) -> None:
         """Register a Storable type to be bridged to a ticking table.
 
         Args:
@@ -126,7 +132,7 @@ class StoreBridge:
         )
         self._registrations[reg.type_name] = reg
 
-    def table(self, storable_cls):
+    def table(self, storable_cls: type) -> TickingTable:
         """Return the TickingTable for a registered type.
 
         The returned TickingTable supports auto-locked derivations::
@@ -142,7 +148,7 @@ class StoreBridge:
 
     # ── Lifecycle ────────────────────────────────────────────────────
 
-    def start(self):
+    def start(self) -> None:
         """Start listening for store events and bridging to Deephaven."""
         if self._started:
             return
@@ -162,7 +168,7 @@ class StoreBridge:
         self._listener.start()
         self._started = True
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop listening and clean up."""
         if self._listener:
             self._listener.stop()
@@ -174,7 +180,7 @@ class StoreBridge:
 
     # ── Internal dispatch ────────────────────────────────────────────
 
-    def _dispatch(self, event: ChangeEvent):
+    def _dispatch(self, event: ChangeEvent) -> None:
         """Called for every ChangeEvent. Route to the correct writer."""
         reg = self._registrations.get(event.type_name)
         if reg is None:

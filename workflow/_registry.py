@@ -10,7 +10,7 @@ _aliases: dict[str, dict] = {}   # name → {"pg_url": ...}
 _lock = threading.Lock()
 
 
-def register_alias(name: str, pg_url: str):
+def register_alias(name: str, pg_url: str) -> None:
     """Register a workflow server alias."""
     with _lock:
         _aliases[name] = {"pg_url": pg_url}

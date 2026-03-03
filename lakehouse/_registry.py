@@ -13,7 +13,7 @@ _lock = threading.Lock()
 def register_alias(name: str, catalog_url: str, s3_endpoint: str,
                    s3_access_key: str = "minioadmin", s3_secret_key: str = "minioadmin",
                    s3_region: str = "us-east-1", warehouse: str = "lakehouse",
-                   namespace: str = "default"):
+                   namespace: str = "default") -> None:
     """Register a lakehouse server alias."""
     with _lock:
         _aliases[name] = {

@@ -6,15 +6,22 @@ whenever @computed values change. Works with self-reactive Storable
 objects — no ReactiveGraph needed.
 """
 
+from __future__ import annotations
+
 import logging
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from reaktiv import Effect
 from reaktiv.signal import ComputeSignal as _ComputeSignal
 
+if TYPE_CHECKING:
+    from store.client import StoreClient
+
 logger = logging.getLogger(__name__)
 
 
-def auto_persist_effect(obj, store_client=None):
+def auto_persist_effect(obj: Any, store_client: StoreClient | None = None) -> list:
     """
     Create effects that write `obj` back to the store whenever
     any @computed value changes.
@@ -38,8 +45,8 @@ def auto_persist_effect(obj, store_client=None):
         if not isinstance(node.read, _ComputeSignal):
             continue
 
-        def make_effect(computed_name, comp):
-            def effect_fn():
+        def make_effect(computed_name: str, comp: _ComputeSignal) -> Callable[[], None]:
+            def effect_fn() -> None:
                 value = comp()
                 try:
                     store_client.update(obj)

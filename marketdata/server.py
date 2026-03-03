@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup: create bus, start feed + WS publisher + TSDB. Shutdown: stop all."""
     bus = TickBus()
     feed = SimulatorFeed()
@@ -95,7 +96,7 @@ app = FastAPI(
 
 
 @app.get("/md/health")
-async def health():
+async def health() -> dict:
     """Server health check with per-type counts."""
     bus: TickBus = app.state.bus
     ws_pub: WebSocketPublisher = app.state.ws_publisher
@@ -113,7 +114,7 @@ async def health():
 
 
 @app.get("/md/symbols")
-async def get_symbols():
+async def get_symbols() -> dict:
     """Return the symbol universe grouped by type."""
     return {
         "equity": list(SYMBOLS),
@@ -122,7 +123,7 @@ async def get_symbols():
 
 
 @app.get("/md/snapshot")
-async def get_all_snapshots():
+async def get_all_snapshots() -> dict:
     """Get latest messages for all types, keyed by 'type:symbol'."""
     bus: TickBus = app.state.bus
     return {
@@ -132,7 +133,7 @@ async def get_all_snapshots():
 
 
 @app.get("/md/snapshot/{msg_type}")
-async def get_snapshots_by_type(msg_type: str):
+async def get_snapshots_by_type(msg_type: str) -> dict:
     """Get latest messages filtered by type (equity, fx, curve)."""
     bus: TickBus = app.state.bus
     return {
@@ -143,7 +144,7 @@ async def get_snapshots_by_type(msg_type: str):
 
 
 @app.get("/md/snapshot/{msg_type}/{symbol}")
-async def get_snapshot_by_type_symbol(msg_type: str, symbol: str):
+async def get_snapshot_by_type_symbol(msg_type: str, symbol: str) -> dict:
     """Get the latest message for a specific type and symbol."""
     bus: TickBus = app.state.bus
     msg = bus.latest.get((msg_type, symbol))
@@ -164,7 +165,7 @@ def _require_tsdb() -> TSDBBackend:
 
 
 @app.get("/md/history/{msg_type}/{symbol:path}")
-async def get_tick_history(
+async def get_tick_history(  # noqa: ANN201
     msg_type: str,
     symbol: str,
     start: datetime | None = Query(None, description="Start time (ISO 8601)"),
@@ -181,7 +182,7 @@ async def get_tick_history(
 
 
 @app.get("/md/bars/{msg_type}/{symbol:path}")
-async def get_bars(
+async def get_bars(  # noqa: ANN201
     msg_type: str,
     symbol: str,
     interval: str = Query("1m", description="Bar interval: 1s,5s,1m,5m,15m,1h,4h,1d"),
@@ -195,7 +196,7 @@ async def get_bars(
 
 
 @app.get("/md/bars/{msg_type}")
-async def get_bars_by_type(
+async def get_bars_by_type(  # noqa: ANN201
     msg_type: str,
     interval: str = Query("1h", description="Bar interval"),
     start: datetime | None = Query(None, description="Start time (ISO 8601)"),
@@ -214,7 +215,7 @@ async def get_bars_by_type(
 
 
 @app.get("/md/latest/{msg_type}")
-async def get_latest_from_tsdb(
+async def get_latest_from_tsdb(  # noqa: ANN201
     msg_type: str,
     symbol: str | None = Query(None, description="Filter by symbol"),
 ):
@@ -227,7 +228,7 @@ async def get_latest_from_tsdb(
 
 
 @app.post("/md/publish")
-async def publish_message(payload: dict):
+async def publish_message(payload: dict) -> dict:
     """Publish a market data message to the bus.
 
     Accepts any MarketDataMessage JSON (must include a 'type' discriminator).
@@ -244,7 +245,7 @@ async def publish_message(payload: dict):
 
 
 @app.websocket("/md/subscribe")
-async def websocket_subscribe(ws: WebSocket):
+async def websocket_subscribe(ws: WebSocket) -> None:
     """Bidirectional WebSocket endpoint for market data.
 
     Protocol:
@@ -295,7 +296,7 @@ async def websocket_subscribe(ws: WebSocket):
 # ── CLI Entry Point ───────────────────────────────────────────────────────────
 
 
-def main():
+def main() -> None:
     """Run the market data server via uvicorn."""
     import argparse
 

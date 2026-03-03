@@ -8,11 +8,12 @@ The only module that imports from timeseries/backends/.
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from timeseries.base import TSDBBackend
 
 
-def create_backend(name: str | None = None, **kwargs) -> TSDBBackend:
+def create_backend(name: str | None = None, **kwargs: Any) -> TSDBBackend:
     """Create a TSDBBackend instance by name.
 
     Args:

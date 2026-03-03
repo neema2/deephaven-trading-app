@@ -65,7 +65,7 @@ class QuestDBReader:
         self._conn = None
 
     @property
-    def connection(self):
+    def connection(self) -> psycopg2.extensions.connection | None:
         """Raw psycopg2 connection (used by schema.create_tables)."""
         return self._conn
 
@@ -229,7 +229,7 @@ class QuestDBReader:
             """
             return self._execute_dict(query)
 
-    def _execute_dict(self, query: str, params=None) -> list[dict]:
+    def _execute_dict(self, query: str, params: tuple | dict | None = None) -> list[dict]:
         """Execute a query and return results as a list of dicts."""
         if self._conn is None:
             raise RuntimeError("QuestDBReader not connected")

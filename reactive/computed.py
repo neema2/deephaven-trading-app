@@ -16,6 +16,7 @@ to create reaktiv Signals/Computed/Effect instances automatically.
 import ast
 import inspect
 import textwrap
+from collections.abc import Callable
 from typing import Any
 
 from reactive.expr import (
@@ -97,7 +98,7 @@ class _ASTTranslator(ast.NodeVisitor):
             # Only truly unsupported constructs (validated earlier) raise.
             return None
 
-    def _translate_body(self, stmts) -> Expr:
+    def _translate_body(self, stmts: list) -> Expr:
         """Translate a list of statements (function body) to an Expr."""
         if len(stmts) == 1:
             stmt = stmts[0]
@@ -144,7 +145,7 @@ class _ASTTranslator(ast.NodeVisitor):
 
         return If(cond, then, else_expr)
 
-    def _translate_expr(self, node) -> Expr:
+    def _translate_expr(self, node: ast.expr | None) -> Expr:
         """Translate a single AST expression node to an Expr."""
         if node is None:
             return Const(None)
@@ -283,7 +284,7 @@ class _ASTTranslator(ast.NodeVisitor):
             f"Unsupported expression in @computed: {type(node).__name__}"
         )
 
-    def _is_self(self, node) -> bool:
+    def _is_self(self, node: ast.expr) -> bool:
         return isinstance(node, ast.Name) and node.id == "self"
 
     def _get_func_name(self, call: ast.Call) -> "str | None":
@@ -317,7 +318,7 @@ class _ReactiveProxy:
 
     __slots__ = ("_obj",)
 
-    def __init__(self, obj) -> None:
+    def __init__(self, obj: Any) -> None:
         object.__setattr__(self, "_obj", obj)
 
     def __getattr__(self, name: str) -> Any:
@@ -330,7 +331,7 @@ class _ReactiveProxy:
         # Fallback to regular attribute
         return getattr(obj, name)
 
-    def __setattr__(self, name, value) -> None:
+    def __setattr__(self, name: str, value: object) -> None:
         obj = object.__getattribute__(self, "_obj")
         setattr(obj, name, value)
 
@@ -347,7 +348,7 @@ class ComputedProperty:
     outer Computeds.
     """
 
-    def __init__(self, fn, expr, name) -> None:
+    def __init__(self, fn: Callable[..., Any], expr: Expr | None, name: str) -> None:
         self.fn = fn          # original function
         self.expr = expr      # Expr tree (or None for cross-entity)
         self.name = name      # method name
@@ -382,7 +383,7 @@ class EffectMethod:
     Wiring happens in Storable.__post_init__.
     """
 
-    def __init__(self, target_computed: str, fn) -> None:
+    def __init__(self, target_computed: str, fn: Callable[..., Any]) -> None:
         self.target_computed = target_computed
         self.fn = fn
         self.name = fn.__name__
@@ -404,7 +405,7 @@ class EffectMethod:
 # Public decorators
 # ---------------------------------------------------------------------------
 
-def _parse_computed_source(fn) -> "Expr | None":
+def _parse_computed_source(fn: Callable[..., Any]) -> "Expr | None":
     """Parse a @computed function's source and return an Expr (or None)."""
     # Collect names of other @computed methods from the class being defined.
     # At decoration time we don't have the full class yet, but we can detect
@@ -456,7 +457,7 @@ def _parse_computed_source(fn) -> "Expr | None":
     return expr
 
 
-def _validate_no_unsupported(func_def: ast.FunctionDef):
+def _validate_no_unsupported(func_def: ast.FunctionDef) -> None:
     """Walk the AST and reject truly unsupported constructs."""
     for node in ast.walk(func_def):
         if isinstance(node, (ast.Try, ast.ExceptHandler)):
@@ -525,7 +526,7 @@ def _inline_computed_refs(expr: Expr, frame_locals: dict) -> Expr:
     return expr
 
 
-def computed(fn):
+def computed(fn: Callable[..., Any]) -> ComputedProperty:
     """Decorator: marks a method as a reactive computed property.
 
     Usage:
@@ -537,7 +538,7 @@ def computed(fn):
     return ComputedProperty(fn=fn, expr=expr, name=fn.__name__)
 
 
-def effect(target_computed: str):
+def effect(target_computed: str) -> Callable[..., EffectMethod]:
     """Decorator factory: marks a method as a side-effect watcher.
 
     Usage:
@@ -546,6 +547,6 @@ def effect(target_computed: str):
             if value < -5000:
                 send_alert(...)
     """
-    def decorator(fn):
+    def decorator(fn: Callable[..., Any]) -> EffectMethod:
         return EffectMethod(target_computed=target_computed, fn=fn)
     return decorator

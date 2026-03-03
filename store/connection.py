@@ -15,8 +15,14 @@ connection used by ``Storable.save()``, ``Position.find()``, etc.
 from __future__ import annotations
 
 import threading
+from typing import TYPE_CHECKING, Any
 
 from store.client import StoreClient
+
+if TYPE_CHECKING:
+    import psycopg2.extensions
+
+    from store.subscriptions import EventBus
 
 # ── Alias registry ────────────────────────────────────────────────────
 
@@ -24,7 +30,7 @@ _aliases: dict[str, dict] = {}   # name → {"host": …, "port": …, "dbname":
 _lock = threading.Lock()
 
 
-def register_alias(name: str, host: str, port: int, dbname: str = "postgres"):
+def register_alias(name: str, host: str, port: int, dbname: str = "postgres") -> None:
     """Register a connection alias so users can ``connect("name", …)``."""
     with _lock:
         _aliases[name] = {"host": host, "port": port, "dbname": dbname}
@@ -50,7 +56,7 @@ def get_connection() -> UserConnection:
     return conn
 
 
-def _set_active(conn: UserConnection | None):
+def _set_active(conn: UserConnection | None) -> None:
     _active.connection = conn
 
 
@@ -65,7 +71,7 @@ class UserConnection:
     def __init__(self, *, user: str, password: str,
                  host: str, port: int, dbname: str,
                  alias: str | None = None,
-                 event_bus=None) -> None:
+                 event_bus: EventBus | None = None) -> None:
         self.user = user
         self.alias = alias
         self._conn_params = dict(host=host, port=port, dbname=dbname,
@@ -78,19 +84,19 @@ class UserConnection:
 
     # Expose the raw psycopg2 connection for permissions helpers
     @property
-    def conn(self):
+    def conn(self) -> psycopg2.extensions.connection:
         return self._client.conn
 
-    def activate(self):
+    def activate(self) -> None:
         """Make this the active connection for the current thread."""
         _set_active(self)
 
-    def deactivate(self):
+    def deactivate(self) -> None:
         """Remove this connection from the active slot (if it is active)."""
         if getattr(_active, "connection", None) is self:
             _set_active(None)
 
-    def close(self):
+    def close(self) -> None:
         """Close the underlying StoreClient and deactivate."""
         self.deactivate()
         self._client.close()
@@ -100,7 +106,7 @@ class UserConnection:
         self.activate()
         return self
 
-    def __exit__(self, *args: object) -> None:
+    def __exit__(self, *args: Any) -> None:
         self.close()
 
     def __repr__(self) -> str:
@@ -115,7 +121,7 @@ def connect(alias_or_host: str | None = None, *,
             host: str | None = None,
             port: int = 5432,
             dbname: str = "postgres",
-            event_bus=None) -> UserConnection:
+            event_bus: EventBus | None = None) -> UserConnection:
     """Open a connection and make it *active*.
 
     Usage::

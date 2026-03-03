@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import duckdb
 
 from datacube import compiler as _compiler
 from datacube.config import (
@@ -118,7 +121,7 @@ class Datacube:
 
     # ── Query ─────────────────────────────────────────────────────
 
-    def query(self):
+    def query(self) -> object:
         """Execute the datacube query and return a PyArrow Table."""
 
         snap = self._ensure_pivot_values()
@@ -126,7 +129,7 @@ class Datacube:
         logger.debug("Datacube SQL:\n%s", sql)
         return self._conn.execute(sql).fetch_arrow_table()
 
-    def query_df(self):
+    def query_df(self) -> object:
         """Execute and return a pandas DataFrame."""
         snap = self._ensure_pivot_values()
         sql = _compiler.compile(snap)
@@ -150,7 +153,7 @@ class Datacube:
 
     # ── Snapshot mutations (return new Datacube) ──────────────────
 
-    def _evolve(self, **kwargs) -> Datacube:
+    def _evolve(self, **kwargs: Any) -> Datacube:
         """Return a new Datacube with an updated snapshot."""
         new_snap = self._snapshot.replace(**kwargs)
         dc = Datacube.__new__(Datacube)
@@ -170,7 +173,7 @@ class Datacube:
         """
         return self._evolve(pivot_by=tuple(fields), pivot_values=None)
 
-    def set_column(self, name: str, **kwargs) -> Datacube:
+    def set_column(self, name: str, **kwargs: Any) -> Datacube:
         """Update one column's configuration (returns new Datacube)."""
         new_snap = self._snapshot.set_column(name, **kwargs)
         dc = Datacube.__new__(Datacube)
@@ -269,7 +272,7 @@ class Datacube:
 
     # ── Drill-down ────────────────────────────────────────────────
 
-    def drill_down(self, **row_values) -> Datacube:
+    def drill_down(self, **row_values: Any) -> Datacube:
         """Drill into a row group.  Adds a pre-filter and advances depth.
 
         Example: ``dc.drill_down(sector="Tech")``
@@ -326,7 +329,7 @@ class Datacube:
 
     # ── UI ─────────────────────────────────────────────────────────
 
-    def show(self, port: int = 8050, open_browser: bool = True):
+    def show(self, port: int = 8050, open_browser: bool = True) -> None:
         """Open an interactive Perspective grid in the browser.
 
         Runs a Tornado server **in-process** (like ``plt.show()``).
@@ -449,7 +452,7 @@ def _resolve_source(
     import duckdb
 
     # Helper: get a DuckDB connection (prefer Lakehouse's if available)
-    def _get_conn():
+    def _get_conn() -> object:
         if lakehouse is not None and _is_lakehouse(lakehouse):
             return lakehouse._ensure_conn()
         return duckdb.connect()
@@ -503,7 +506,7 @@ def _resolve_source(
     )
 
 
-def _resolve_storable_source(cls) -> tuple[Any, str, list[DatacubeColumnConfig]]:
+def _resolve_storable_source(cls: type) -> tuple[Any, str, list[DatacubeColumnConfig]]:
     """Pull Storable data → Arrow → DuckDB temp view."""
     import dataclasses as dc_mod
 
@@ -545,7 +548,7 @@ def _resolve_storable_source(cls) -> tuple[Any, str, list[DatacubeColumnConfig]]
     return conn, view_name, columns
 
 
-def _columns_from_storable_class(cls) -> list[DatacubeColumnConfig]:
+def _columns_from_storable_class(cls: type) -> list[DatacubeColumnConfig]:
     """Extract column configs from a Storable class using its registry."""
     import dataclasses as dc_mod
 
@@ -568,7 +571,7 @@ def _columns_from_storable_class(cls) -> list[DatacubeColumnConfig]:
     return columns
 
 
-def _columns_from_arrow(table) -> list[DatacubeColumnConfig]:
+def _columns_from_arrow(table: Any) -> list[DatacubeColumnConfig]:
     """Extract column configs from a PyArrow Table schema."""
     import pyarrow as pa
 
@@ -594,7 +597,7 @@ def _columns_from_arrow(table) -> list[DatacubeColumnConfig]:
     return columns
 
 
-def _columns_from_df(df) -> list[DatacubeColumnConfig]:
+def _columns_from_df(df: Any) -> list[DatacubeColumnConfig]:
     """Extract column configs from a pandas DataFrame."""
     import numpy as np
 
@@ -627,7 +630,7 @@ def _columns_from_df(df) -> list[DatacubeColumnConfig]:
     return columns
 
 
-def _discover_columns_from_sql(conn, source: str) -> list[DatacubeColumnConfig]:
+def _discover_columns_from_sql(conn: duckdb.DuckDBPyConnection, source: str) -> list[DatacubeColumnConfig]:
     """Discover columns by running LIMIT 0 against the source."""
     try:
         trimmed = source.strip()

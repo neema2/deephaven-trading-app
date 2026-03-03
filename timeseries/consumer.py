@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
+from typing import Any
 
 from marketdata.bus import TickBus
 
@@ -47,7 +49,7 @@ class TSDBConsumer:
         await self._backend.flush()
         logger.info("TSDBConsumer stopped")
 
-    async def _write_loop(self, msg_iter) -> None:
+    async def _write_loop(self, msg_iter: AsyncIterator[Any]) -> None:
         """Main loop: read ticks from bus, write to backend."""
         try:
             async for msg in msg_iter:

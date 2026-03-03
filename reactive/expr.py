@@ -12,6 +12,7 @@ Operator overloading builds the tree — no computation happens at definition ti
 import json
 import math
 from abc import ABC, abstractmethod
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Base
@@ -21,7 +22,7 @@ class Expr(ABC):
     """Abstract expression node. All concrete nodes subclass this."""
 
     @abstractmethod
-    def eval(self, ctx: dict):
+    def eval(self, ctx: dict) -> Any:
         """Evaluate this expression against a context dict."""
 
     @abstractmethod
@@ -38,40 +39,40 @@ class Expr(ABC):
 
     # -- Arithmetic operators ------------------------------------------------
 
-    def __add__(self, other) -> "Expr":
+    def __add__(self, other: object) -> "Expr":
         return BinOp("+", self, _wrap(other))
 
-    def __radd__(self, other) -> "Expr":
+    def __radd__(self, other: object) -> "Expr":
         return BinOp("+", _wrap(other), self)
 
-    def __sub__(self, other) -> "Expr":
+    def __sub__(self, other: object) -> "Expr":
         return BinOp("-", self, _wrap(other))
 
-    def __rsub__(self, other) -> "Expr":
+    def __rsub__(self, other: object) -> "Expr":
         return BinOp("-", _wrap(other), self)
 
-    def __mul__(self, other) -> "Expr":
+    def __mul__(self, other: object) -> "Expr":
         return BinOp("*", self, _wrap(other))
 
-    def __rmul__(self, other) -> "Expr":
+    def __rmul__(self, other: object) -> "Expr":
         return BinOp("*", _wrap(other), self)
 
-    def __truediv__(self, other) -> "Expr":
+    def __truediv__(self, other: object) -> "Expr":
         return BinOp("/", self, _wrap(other))
 
-    def __rtruediv__(self, other) -> "Expr":
+    def __rtruediv__(self, other: object) -> "Expr":
         return BinOp("/", _wrap(other), self)
 
-    def __mod__(self, other) -> "Expr":
+    def __mod__(self, other: object) -> "Expr":
         return BinOp("%", self, _wrap(other))
 
-    def __rmod__(self, other) -> "Expr":
+    def __rmod__(self, other: object) -> "Expr":
         return BinOp("%", _wrap(other), self)
 
-    def __pow__(self, other) -> "Expr":
+    def __pow__(self, other: object) -> "Expr":
         return BinOp("**", self, _wrap(other))
 
-    def __rpow__(self, other) -> "Expr":
+    def __rpow__(self, other: object) -> "Expr":
         return BinOp("**", _wrap(other), self)
 
     def __neg__(self) -> "Expr":
@@ -82,40 +83,40 @@ class Expr(ABC):
 
     # -- Comparison operators ------------------------------------------------
 
-    def __gt__(self, other) -> "Expr":
+    def __gt__(self, other: object) -> "Expr":
         return BinOp(">", self, _wrap(other))
 
-    def __lt__(self, other) -> "Expr":
+    def __lt__(self, other: object) -> "Expr":
         return BinOp("<", self, _wrap(other))
 
-    def __ge__(self, other) -> "Expr":
+    def __ge__(self, other: object) -> "Expr":
         return BinOp(">=", self, _wrap(other))
 
-    def __le__(self, other) -> "Expr":
+    def __le__(self, other: object) -> "Expr":
         return BinOp("<=", self, _wrap(other))
 
-    def __eq__(self, other) -> "Expr":
+    def __eq__(self, other: object) -> "Expr":
         if not isinstance(other, Expr) and other is None:
             return NotImplemented
         return BinOp("==", self, _wrap(other))
 
-    def __ne__(self, other) -> "Expr":
+    def __ne__(self, other: object) -> "Expr":
         if not isinstance(other, Expr) and other is None:
             return NotImplemented
         return BinOp("!=", self, _wrap(other))
 
     # -- Logical operators (use & | ~ since and/or/not can't be overridden) --
 
-    def __and__(self, other) -> "Expr":
+    def __and__(self, other: object) -> "Expr":
         return BinOp("and", self, _wrap(other))
 
-    def __rand__(self, other) -> "Expr":
+    def __rand__(self, other: object) -> "Expr":
         return BinOp("and", _wrap(other), self)
 
-    def __or__(self, other) -> "Expr":
+    def __or__(self, other: object) -> "Expr":
         return BinOp("or", self, _wrap(other))
 
-    def __ror__(self, other) -> "Expr":
+    def __ror__(self, other: object) -> "Expr":
         return BinOp("or", _wrap(other), self)
 
     def __invert__(self) -> "Expr":
@@ -123,27 +124,27 @@ class Expr(ABC):
 
     # -- String methods (chainable) ------------------------------------------
 
-    def length(self):
+    def length(self) -> "Expr":
         return StrOp("length", self)
 
-    def upper(self):
+    def upper(self) -> "Expr":
         return StrOp("upper", self)
 
-    def lower(self):
+    def lower(self) -> "Expr":
         return StrOp("lower", self)
 
-    def contains(self, substring):
+    def contains(self, substring: object) -> "Expr":
         return StrOp("contains", self, _wrap(substring))
 
-    def starts_with(self, prefix):
+    def starts_with(self, prefix: object) -> "Expr":
         return StrOp("starts_with", self, _wrap(prefix))
 
-    def concat(self, other):
+    def concat(self, other: object) -> "Expr":
         return StrOp("concat", self, _wrap(other))
 
     # -- Null helpers --------------------------------------------------------
 
-    def is_null(self):
+    def is_null(self) -> "Expr":
         return IsNull(self)
 
     def __repr__(self) -> str:
@@ -154,7 +155,7 @@ class Expr(ABC):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _wrap(value):
+def _wrap(value: object) -> Expr:
     """Wrap a Python literal as a Const if it's not already an Expr."""
     if isinstance(value, Expr):
         return value
@@ -181,10 +182,10 @@ _PURE_OPS = {
 class Const(Expr):
     """A constant literal value."""
 
-    def __init__(self, value) -> None:
+    def __init__(self, value: object) -> None:
         self.value = value
 
-    def eval(self, ctx: dict):
+    def eval(self, ctx: dict) -> Any:
         return self.value
 
     def to_sql(self, col: str = "data") -> str:
@@ -217,7 +218,7 @@ class Field(Expr):
     def __init__(self, name: str) -> None:
         self.name = name
 
-    def eval(self, ctx: dict):
+    def eval(self, ctx: dict) -> Any:
         return ctx[self.name]
 
     def to_sql(self, col: str = "data") -> str:
@@ -242,7 +243,7 @@ class BinOp(Expr):
         self.left = left
         self.right = right
 
-    def eval(self, ctx: dict):
+    def eval(self, ctx: dict) -> Any:
         l = self.left.eval(ctx)
         r = self.right.eval(ctx)
         if self.op == "+":
@@ -307,7 +308,7 @@ class UnaryOp(Expr):
         self.op = op
         self.operand = operand
 
-    def eval(self, ctx: dict):
+    def eval(self, ctx: dict) -> Any:
         v = self.operand.eval(ctx)
         if self.op == "neg":
             return -v
@@ -373,7 +374,7 @@ class Func(Expr):
         self.name = name
         self.args = [_wrap(a) for a in args]
 
-    def eval(self, ctx: dict):
+    def eval(self, ctx: dict) -> Any:
         fn = self._PYTHON_FUNCS.get(self.name)
         if fn is None:
             raise ValueError(f"Unknown function: {self.name}")
@@ -409,7 +410,7 @@ class If(Expr):
         self.then_ = _wrap(then_)
         self.else_ = _wrap(else_)
 
-    def eval(self, ctx: dict):
+    def eval(self, ctx: dict) -> Any:
         if self.condition.eval(ctx):
             return self.then_.eval(ctx)
         return self.else_.eval(ctx)
@@ -441,7 +442,7 @@ class Coalesce(Expr):
     def __init__(self, exprs: list) -> None:
         self.exprs = [_wrap(e) for e in exprs]
 
-    def eval(self, ctx: dict):
+    def eval(self, ctx: dict) -> Any:
         for e in self.exprs:
             v = e.eval(ctx)
             if v is not None:
@@ -475,7 +476,7 @@ class IsNull(Expr):
     def __init__(self, operand: Expr) -> None:
         self.operand = _wrap(operand)
 
-    def eval(self, ctx: dict):
+    def eval(self, ctx: dict) -> bool:
         return self.operand.eval(ctx) is None
 
     def to_sql(self, col: str = "data") -> str:
@@ -494,12 +495,12 @@ class IsNull(Expr):
 class StrOp(Expr):
     """String operation: length, upper, lower, contains, starts_with, concat."""
 
-    def __init__(self, op: str, operand: Expr, arg: Expr = None) -> None:
+    def __init__(self, op: str, operand: Expr, arg: Expr | None = None) -> None:
         self.op = op
         self.operand = operand
         self.arg = arg
 
-    def eval(self, ctx: dict):
+    def eval(self, ctx: dict) -> Any:
         v = self.operand.eval(ctx)
         if self.op == "length":
             return len(v)

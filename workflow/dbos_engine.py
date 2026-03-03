@@ -69,7 +69,7 @@ class DBOSEngine(WorkflowEngine):
         self.launch()
         return self
 
-    def __exit__(self, *args: object) -> None:
+    def __exit__(self, *args: Any) -> None:
         self.destroy()
 
     # ── Running workflows / steps ────────────────────────────────────
@@ -167,7 +167,7 @@ class DBOSEngine(WorkflowEngine):
         if fn not in self._workflow_registry:
             @DBOS.workflow()
             @functools.wraps(fn)
-            def wrapper(*a, **kw):
+            def wrapper(*a: Any, **kw: Any) -> Any:
                 return fn(*a, **kw)
             self._workflow_registry[fn] = wrapper
         return self._workflow_registry[fn]
@@ -177,7 +177,7 @@ class DBOSEngine(WorkflowEngine):
         if fn not in self._step_registry:
             @DBOS.step()
             @functools.wraps(fn)
-            def wrapper(*a, **kw):
+            def wrapper(*a: Any, **kw: Any) -> Any:
                 return fn(*a, **kw)
             self._step_registry[fn] = wrapper
         return self._step_registry[fn]

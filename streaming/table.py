@@ -12,9 +12,10 @@ Classes:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Python type → Deephaven type mapping (lazy, avoids import at module level)
@@ -23,7 +24,7 @@ from decimal import Decimal
 _PY_TO_DH = None  # populated on first use
 
 
-def _type_map():
+def _type_map() -> dict:
     """Return the Python→DH type dict, building it on first call."""
     global _PY_TO_DH
     if _PY_TO_DH is None:
@@ -62,7 +63,7 @@ def _resolve_schema(schema: dict[str, type]) -> dict:
 _UG_REF = None  # cached update graph (set on first flush from main thread)
 
 
-def flush():
+def flush() -> None:
     """Flush the Deephaven update graph so pending writes become visible.
 
     Safe to call from any thread — the update graph reference is cached
@@ -93,12 +94,12 @@ class LiveTable:
 
     __slots__ = ("_table",)
 
-    def __init__(self, dh_table) -> None:
+    def __init__(self, dh_table: Any) -> None:
         self._table = dh_table
 
     # -- helpers ----------------------------------------------------------
 
-    def _derive(self, fn, *args, **kwargs) -> LiveTable:
+    def _derive(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> LiveTable:
         """Derive a new LiveTable from this table."""
         return LiveTable(fn(*args, **kwargs))
 
@@ -112,7 +113,7 @@ class LiveTable:
         """First row per group."""
         return self._derive(self._table.first_by, by)
 
-    def agg_by(self, aggs, by=None) -> LiveTable:
+    def agg_by(self, aggs: list, by: str | Sequence[str] | None = None) -> LiveTable:
         """Aggregate by group."""
         if by is not None:
             return self._derive(self._table.agg_by, aggs, by)
@@ -136,7 +137,7 @@ class LiveTable:
             return self._derive(self._table.group_by, by)
         return self._derive(self._table.group_by)
 
-    def count_by(self, col: str, by=None) -> LiveTable:
+    def count_by(self, col: str, by: str | Sequence[str] | None = None) -> LiveTable:
         """Count by group."""
         if by is not None:
             return self._derive(self._table.count_by, col, by)
@@ -150,13 +151,13 @@ class LiveTable:
         """Sort descending."""
         return self._derive(self._table.sort_descending, order_by)
 
-    def where(self, filters) -> LiveTable:
+    def where(self, filters: str | list[str]) -> LiveTable:
         """Filter rows."""
         return self._derive(self._table.where, filters)
 
     # -- output -----------------------------------------------------------
 
-    def publish(self, name: str):
+    def publish(self, name: str) -> None:
         """Publish this table to the Deephaven query scope.
 
         After publishing, remote ``pydeephaven`` clients can open the
@@ -167,7 +168,7 @@ class LiveTable:
         scope = get_exec_ctx().j_exec_ctx.getQueryScope()
         scope.putParam(name, self._table.j_table)
 
-    def snapshot(self):
+    def snapshot(self) -> object:
         """Return a pandas DataFrame snapshot of the current table state."""
         from deephaven import pandas as dhpd
         from deephaven.execution_context import get_exec_ctx
@@ -213,15 +214,15 @@ class TickingTable(LiveTable):
         self._writer = DynamicTableWriter(dh_schema)
         super().__init__(self._writer.table)
 
-    def write_row(self, *values):
+    def write_row(self, *values: Any) -> None:
         """Write a single row.  Thread-safe per Deephaven docs."""
         self._writer.write_row(*values)
 
-    def flush(self):
+    def flush(self) -> None:
         """Flush the update graph so pending writes are visible."""
         flush()
 
-    def close(self):
+    def close(self) -> None:
         """Close the underlying writer."""
         self._writer.close()
 

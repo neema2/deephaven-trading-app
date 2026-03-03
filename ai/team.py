@@ -21,8 +21,12 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from ai._types import Message
+
+if TYPE_CHECKING:
+    from ai.client import AI
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +67,7 @@ class AgentTeam:
     def __init__(
         self,
         agents: dict,
-        ai=None,
+        ai: AI | None = None,
         max_delegations: int = 5,
         temperature: float = 0.7,
     ) -> None:

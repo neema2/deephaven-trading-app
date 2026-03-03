@@ -17,6 +17,7 @@ User code uses ``MediaStore("demo", ai=ai)``.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import objectstore
 
@@ -82,7 +83,7 @@ class MediaServer:
         """S3 bucket name."""
         return self._bucket
 
-    def register_alias(self, name: str):
+    def register_alias(self, name: str) -> None:
         """Register this server's connection info under an alias name."""
         _register_alias(
             name,
@@ -96,7 +97,7 @@ class MediaServer:
         await self.start()
         return self
 
-    async def __aexit__(self, *args: object) -> None:
+    async def __aexit__(self, *args: Any) -> None:
         pass  # atexit handles cleanup
 
 

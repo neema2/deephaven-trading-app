@@ -25,9 +25,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Generator
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from ai._types import Message, Tool, ToolCall
 from ai.memory import AgentMemory
+
+if TYPE_CHECKING:
+    from ai.client import AI
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +74,7 @@ class Agent:
         self,
         tools: list | None = None,
         system_prompt: str = "You are a helpful assistant.",
-        ai=None,
+        ai: AI | None = None,
         max_iterations: int = 10,
         temperature: float = 0.7,
         model: str | None = None,

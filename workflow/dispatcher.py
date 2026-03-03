@@ -12,7 +12,13 @@ on crash recovery):
         dispatcher.durable_transition(order, "SETTLED")
 """
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from store.client import StoreClient
+    from workflow.engine import WorkflowEngine
 
 
 class WorkflowDispatcher:
@@ -23,11 +29,11 @@ class WorkflowDispatcher:
     rather than re-executing the transition.
     """
 
-    def __init__(self, engine, client) -> None:
+    def __init__(self, engine: WorkflowEngine, client: StoreClient) -> None:
         self._engine = engine
         self._client = client
 
-    def durable_transition(self, obj, new_state, **kwargs) -> Any:
+    def durable_transition(self, obj: Any, new_state: str, **kwargs: Any) -> Any:
         """Execute a state transition as a checkpointed workflow step.
 
         Exactly-once semantics: if the workflow crashes after this step

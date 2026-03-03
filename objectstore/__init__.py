@@ -22,6 +22,7 @@ from __future__ import annotations
 import atexit
 import logging
 from abc import ABC, abstractmethod
+from typing import Any
 
 from objectstore.client import S3Client
 
@@ -72,7 +73,7 @@ class ObjectStore(ABC):
         )
 
 
-async def configure(backend: str = "minio", **kwargs) -> ObjectStore:
+async def configure(backend: str = "minio", **kwargs: Any) -> ObjectStore:
     """
     Configure and start an object store backend.
 

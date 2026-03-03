@@ -18,6 +18,7 @@ import json
 import logging
 import uuid
 from collections import namedtuple
+from collections.abc import Callable
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -35,7 +36,7 @@ _UNSET = object()
 class _JSONEncoder(json.JSONEncoder):
     """Handles datetime, date, Decimal, UUID, and dataclass serialization."""
 
-    def default(self, obj):
+    def default(self, obj: object) -> Any:
         if isinstance(obj, datetime):
             return {"__type__": "datetime", "value": obj.isoformat()}
         if isinstance(obj, date):
@@ -49,7 +50,7 @@ class _JSONEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-def _json_decoder_hook(d):
+def _json_decoder_hook(d: dict) -> Any:
     """Reconstruct special types from JSONB."""
     if "__type__" in d:
         t = d["__type__"]
@@ -109,7 +110,7 @@ class Storable:
     _reactive = {}      # name → _RNode(read, write)
     _effects = []       # Effect objects (prevent GC)
 
-    def __init_subclass__(cls, **kwargs) -> None:
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         if cls._registry is not None:
             # __init_subclass__ fires BEFORE @dataclass, so we use
@@ -146,8 +147,8 @@ class Storable:
 
                 if cp.expr is not None:
                     # Single-entity: evaluate Expr against signal values
-                    def _make_single(expression, sigs, ov_sig):
-                        def compute():
+                    def _make_single(expression: Any, sigs: dict, ov_sig: Signal) -> Callable[[], Any]:
+                        def compute() -> Any:
                             ov = ov_sig()
                             if ov is not _UNSET:
                                 return ov
@@ -157,9 +158,9 @@ class Storable:
                     comp = Computed(_make_single(cp.expr, signals, override_sig))
                 else:
                     # Cross-entity: call original function with reactive proxy
-                    def _make_cross(func, obj, ov_sig):
+                    def _make_cross(func: Callable[..., Any], obj: Any, ov_sig: Signal) -> Callable[[], Any]:
                         proxy = _ReactiveProxy(obj)
-                        def compute():
+                        def compute() -> Any:
                             ov = ov_sig()
                             if ov is not _UNSET:
                                 return ov
@@ -185,8 +186,8 @@ class Storable:
                     )
                 bound_fn = em.fn.__get__(self, type(self))
 
-                def _make_effect(callback, comp):
-                    def effect_fn():
+                def _make_effect(callback: Callable[..., Any], comp: Computed) -> Callable[[], None]:
+                    def effect_fn() -> None:
                         value = comp()
                         try:
                             callback(value)
@@ -204,14 +205,14 @@ class Storable:
         # Tick effects once to register dependencies
         self._tick()
 
-    def __getattribute__(self, name) -> Any:
+    def __getattribute__(self, name: str) -> Any:
         """Route reactive field/computed reads through Signals/Computeds."""
         node = object.__getattribute__(self, '_reactive').get(name)
         if node is not None:
             return node.read()
         return object.__getattribute__(self, name)
 
-    def __setattr__(self, name, value) -> None:
+    def __setattr__(self, name: str, value: object) -> None:
         """Intercept field sets to update Signals; computed sets to override."""
         object.__setattr__(self, name, value)
         node = object.__getattribute__(self, '_reactive').get(name)
@@ -219,7 +220,7 @@ class Storable:
             node.write(value)
             self._tick()
 
-    def batch_update(self, **kwargs):
+    def batch_update(self, **kwargs: Any) -> None:
         """Update multiple fields with a single recomputation.
 
         Usage:
@@ -234,7 +235,7 @@ class Storable:
                     node.write(value)
         self._tick()
 
-    def clear_override(self, name):
+    def clear_override(self, name: str) -> None:
         """Remove computed override, revert to formula. Ripples downstream."""
         node = object.__getattribute__(self, '_reactive').get(name)
         if node is None or not isinstance(node.read, _ComputeSignal):
@@ -242,7 +243,7 @@ class Storable:
         node.write(_UNSET)
         self._tick()
 
-    def _tick(self):
+    def _tick(self) -> None:
         """Process pending effects by running the event loop briefly."""
         try:
             loop = asyncio.get_event_loop()
@@ -288,18 +289,18 @@ class Storable:
     # ── Active Record API ─────────────────────────────────────────────
 
     @staticmethod
-    def _get_client():
+    def _get_client() -> Any:
         """Return the StoreClient from the active UserConnection."""
         from store.connection import get_connection
         return get_connection()._client
 
     @staticmethod
-    def _get_conn():
+    def _get_conn() -> Any:
         """Return the raw psycopg2 connection from the active UserConnection."""
         from store.connection import get_connection
         return get_connection().conn
 
-    def save(self, valid_from=None):
+    def save(self, valid_from: Any = None) -> str:
         """Persist this object: create if new, update if existing.
 
         Returns entity_id on first save.
@@ -311,17 +312,17 @@ class Storable:
             client.update(self, valid_from=valid_from)
             return self._store_entity_id
 
-    def delete(self):
+    def delete(self) -> bool:
         """Soft-delete this object (DELETED tombstone)."""
         client = self._get_client()
         return client.delete(self)
 
-    def transition(self, new_state, valid_from=None):
+    def transition(self, new_state: str, valid_from: Any = None) -> None:
         """Transition to a new lifecycle state."""
         client = self._get_client()
         client.transition(self, new_state, valid_from=valid_from)
 
-    def refresh(self):
+    def refresh(self) -> None:
         """Reload this object's data from the store (latest version)."""
         if not self._store_entity_id:
             raise ValueError("Object has no entity_id — save() it first")
@@ -341,21 +342,21 @@ class Storable:
                      '_store_valid_to', '_store_state', '_store_event_type'):
             object.__setattr__(self, attr, getattr(fresh, attr))
 
-    def history(self):
+    def history(self) -> list:
         """Return all versions of this entity."""
         if not self._store_entity_id:
             raise ValueError("Object has no entity_id — save() it first")
         client = self._get_client()
         return client.history(type(self), self._store_entity_id)
 
-    def audit(self):
+    def audit(self) -> list[dict]:
         """Return the full audit trail for this entity."""
         if not self._store_entity_id:
             raise ValueError("Object has no entity_id — save() it first")
         client = self._get_client()
         return client.audit(self._store_entity_id)
 
-    def share(self, user, mode="read"):
+    def share(self, user: str, mode: str = "read") -> bool:
         """Grant access to another user. mode='read' or 'write'."""
         if not self._store_entity_id:
             raise ValueError("Object has no entity_id — save() it first")
@@ -365,7 +366,7 @@ class Storable:
             return share_write(conn, self._store_entity_id, user)
         return share_read(conn, self._store_entity_id, user)
 
-    def unshare(self, user, mode="read"):
+    def unshare(self, user: str, mode: str = "read") -> bool:
         """Revoke access from another user. mode='read' or 'write'."""
         if not self._store_entity_id:
             raise ValueError("Object has no entity_id — save() it first")
@@ -376,25 +377,25 @@ class Storable:
         return unshare_read(conn, self._store_entity_id, user)
 
     @classmethod
-    def find(cls, entity_id):
+    def find(cls, entity_id: str) -> Any:
         """Read the latest non-deleted version of an entity by ID."""
         client = cls._get_client()
         return client.read(cls, entity_id)
 
     @classmethod
-    def query(cls, filters=None, limit=100, cursor=None):
+    def query(cls, filters: dict | None = None, limit: int = 100, cursor: Any = None) -> Any:
         """Query current entities of this type with optional filters."""
         client = cls._get_client()
         return client.query(cls, filters=filters, limit=limit, cursor=cursor)
 
     @classmethod
-    def count(cls):
+    def count(cls) -> int:
         """Count current (latest non-deleted) entities of this type."""
         client = cls._get_client()
         return client.count(cls)
 
     @classmethod
-    def as_of(cls, entity_id, *, tx_time=None, valid_time=None):
+    def as_of(cls, entity_id: str, *, tx_time: Any = None, valid_time: Any = None) -> Any:
         """Bi-temporal point-in-time query."""
         client = cls._get_client()
         return client.as_of(cls, entity_id, tx_time=tx_time, valid_time=valid_time)

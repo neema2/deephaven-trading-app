@@ -23,6 +23,7 @@ import time
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
+from typing import Any
 
 from scheduler.cron import is_due
 from scheduler.dag_runner import DAGRunner
@@ -144,7 +145,7 @@ class SchedulerServer:
         self.start()
         return self
 
-    def __exit__(self, *args: object) -> None:
+    def __exit__(self, *args: Any) -> None:
         self.stop()
 
     # ── Registration ──────────────────────────────────────────────────

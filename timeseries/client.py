@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
+from typing import Any
 
 from marketdata.models import CurveTick, FXTick, Tick
 
@@ -39,7 +40,7 @@ class Timeseries:
         data_dir: str | None = None,
         backend: str | None = None,
         # Pass-through kwargs for advanced/testing use
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         self._backend: TSDBBackend | None = None
         self._auto_server = None
@@ -86,7 +87,7 @@ class Timeseries:
         return self._backend_from_name(backend_name, auto_start=True, **self._kwargs)
 
     @staticmethod
-    def _backend_from_name(name: str, **kwargs) -> TSDBBackend:
+    def _backend_from_name(name: str, **kwargs: Any) -> TSDBBackend:
         """Create a backend by name."""
         if name == "questdb":
             from timeseries.backends.questdb import QuestDBBackend
@@ -122,5 +123,5 @@ class Timeseries:
         await self.start()
         return self
 
-    async def __aexit__(self, *args: object) -> None:
+    async def __aexit__(self, *args: Any) -> None:
         await self.stop()

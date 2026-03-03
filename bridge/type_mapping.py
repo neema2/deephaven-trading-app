@@ -10,13 +10,13 @@ import dataclasses
 from collections import OrderedDict
 from datetime import datetime
 from decimal import Decimal
-from typing import get_args, get_origin, get_type_hints
+from typing import Any, get_args, get_origin, get_type_hints
 
 # Supported Python types for columns
 _SUPPORTED_TYPES = {str, int, float, bool, Decimal, datetime}
 
 
-def _unwrap_type(python_type):
+def _unwrap_type(python_type: type) -> type:
     """Unwrap Optional[X] → X, and normalise to a supported Python type."""
     origin = get_origin(python_type)
     if origin is not None:
@@ -40,7 +40,7 @@ _METADATA_COLUMNS = [
 ]
 
 
-def infer_schema(storable_cls):
+def infer_schema(storable_cls: type) -> OrderedDict:
     """Auto-generate a column schema from a @dataclass Storable.
 
     Returns an OrderedDict of {column_name: python_type}.
@@ -80,7 +80,7 @@ def infer_schema(storable_cls):
 infer_dh_schema = infer_schema
 
 
-def _to_dh_value(value):
+def _to_dh_value(value: Any) -> Any:
     """Convert a Python value to a Deephaven-compatible value.
 
     Uses DH's own SDK for type conversions. The only type that
@@ -110,7 +110,7 @@ _META_COLUMNS = [
 _META_ATTR_MAP = {name: attr for name, attr, _ in _META_COLUMNS}
 
 
-def extract_row(obj, column_names):
+def extract_row(obj: Any, column_names: list[str]) -> tuple:
     """Extract values from a Storable instance in the given column order.
 
     Args:

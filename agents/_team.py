@@ -188,7 +188,7 @@ class PlatformAgents:
 
     # ── Team-level operations ────────────────────────────────────
 
-    def run(self, prompt: str):
+    def run(self, prompt: str) -> object:
         """Run a data engineering task.
 
         The router LLM decomposes the task and delegates to specialist agents.

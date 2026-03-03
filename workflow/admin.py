@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import urllib.parse
+from typing import Any
 
 import pgserver
 import psycopg2
@@ -54,7 +55,7 @@ class WorkflowServer:
 
     # ── Internal ─────────────────────────────────────────────────────
 
-    def _ensure_uuid_ossp_shim(self):
+    def _ensure_uuid_ossp_shim(self) -> None:
         """Create a pure-SQL uuid-ossp shim if the extension files are missing.
         DBOS migrations require uuid-ossp. pgserver on Linux doesn't bundle
         the C-based extension, but PG 13+ has gen_random_uuid() built-in."""
@@ -85,17 +86,17 @@ class WorkflowServer:
                     "AS $$ SELECT gen_random_uuid() $$ LANGUAGE SQL;\n"
                 )
 
-    def _detect_superuser(self):
+    def _detect_superuser(self) -> None:
         """Detect the superuser name from the pgserver URI."""
         uri = self._pg.get_uri()
         parsed = urllib.parse.urlparse(uri)
         self._superuser = parsed.username or os.getenv("USER", "postgres")
 
-    def _superuser_conn(self):
+    def _superuser_conn(self) -> object:
         """Get a superuser connection (local socket, trust auth)."""
         return psycopg2.connect(self._pg.get_uri())
 
-    def _bootstrap(self):
+    def _bootstrap(self) -> None:
         """Create admin role and grant CREATE on database. Idempotent.
         DBOS needs CREATE privilege to make its 'dbos' schema."""
         conn = self._superuser_conn()
@@ -153,11 +154,11 @@ class WorkflowServer:
             f"localhost:{info['port']}/{info['dbname']}?host={host_encoded}"
         )
 
-    def register_alias(self, name: str):
+    def register_alias(self, name: str) -> None:
         """Register this server's PG URL under an alias name."""
         _register_alias(name, pg_url=self.pg_url())
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the embedded PostgreSQL server."""
         if self._pg:
             self._pg.cleanup()
@@ -167,7 +168,7 @@ class WorkflowServer:
         self.start()
         return self
 
-    def __exit__(self, *args: object) -> None:
+    def __exit__(self, *args: Any) -> None:
         self.stop()
 
 

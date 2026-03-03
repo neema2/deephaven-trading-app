@@ -63,7 +63,7 @@ class _PlatformContext:
 
     # ── Lazy service clients ─────────────────────────────────────
 
-    def get_store_connection(self):
+    def get_store_connection(self) -> object:
         """Get or create a store connection using the configured alias."""
         if not self._store_alias:
             raise RuntimeError("No store alias configured")
@@ -75,7 +75,7 @@ class _PlatformContext:
         )
 
     @property
-    def lakehouse(self):
+    def lakehouse(self) -> object:
         """Lazy Lakehouse client."""
         if self._lakehouse_instance is None:
             if not self._lakehouse_alias:
@@ -85,7 +85,7 @@ class _PlatformContext:
         return self._lakehouse_instance
 
     @property
-    def md_client(self):
+    def md_client(self) -> object:
         """Lazy MarketDataClient."""
         if self._md_client_instance is None:
             if not self._md_alias:
@@ -100,7 +100,7 @@ class _PlatformContext:
         return self.md_client.base_url
 
     @property
-    def media_store(self):
+    def media_store(self) -> object:
         """Lazy MediaStore client."""
         if self._media_store_instance is None:
             if not self._media_alias:
@@ -112,7 +112,7 @@ class _PlatformContext:
         return self._media_store_instance
 
     @property
-    def tsdb(self):
+    def tsdb(self) -> object:
         """Lazy Timeseries client."""
         if self._tsdb_instance is None:
             if not self._tsdb_alias:
@@ -122,7 +122,7 @@ class _PlatformContext:
         return self._tsdb_instance
 
     @property
-    def streaming_client(self):
+    def streaming_client(self) -> object:
         """Lazy StreamingClient."""
         if self._streaming_client_instance is None:
             if not self._streaming_alias:
@@ -132,7 +132,7 @@ class _PlatformContext:
         return self._streaming_client_instance
 
     @property
-    def ai(self):
+    def ai(self) -> object:
         """AI instance (lazy-created from env if not provided)."""
         if self._ai_instance is None:
             from ai import AI

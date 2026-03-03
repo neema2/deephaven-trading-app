@@ -17,6 +17,7 @@ Hides Deephaven as an implementation detail.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from streaming._registry import register_alias as _register_alias
 
@@ -80,7 +81,7 @@ class StreamingServer:
     def url(self) -> str:
         return f"http://localhost:{self._port}"
 
-    def register_alias(self, name: str):
+    def register_alias(self, name: str) -> None:
         """Register this server under an alias name."""
         _register_alias(name, port=self._port)
 
@@ -88,7 +89,7 @@ class StreamingServer:
         self.start()
         return self
 
-    def __exit__(self, *args: object) -> None:
+    def __exit__(self, *args: Any) -> None:
         self.stop()
 
 

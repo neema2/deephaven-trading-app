@@ -29,7 +29,8 @@ import logging
 import os
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Generator
+from collections.abc import Callable, Generator
+from typing import Any
 
 from ai._types import LLMResponse, Message, ToolCall
 
@@ -176,7 +177,7 @@ class GeminiLLM(LLMClient):
         self._max_retries = max_retries
         self._client = None
 
-    def _get_client(self):
+    def _get_client(self) -> object:
         """Lazy-init the genai client."""
         if self._client is None:
             from google import genai
@@ -291,7 +292,7 @@ class GeminiLLM(LLMClient):
         self._last_system_instruction = system_instruction
         return contents
 
-    def _build_config(self, tools, temperature, max_tokens):
+    def _build_config(self, tools: list[dict] | None, temperature: float, max_tokens: int) -> object:
         """Build Gemini generation config."""
         from google.genai import types
 
@@ -327,7 +328,7 @@ class GeminiLLM(LLMClient):
 
         return [types.Tool(function_declarations=declarations)]
 
-    def _parse_response(self, result) -> LLMResponse:
+    def _parse_response(self, result: Any) -> LLMResponse:
         """Parse Gemini response into our LLMResponse format."""
         content = ""
         tool_calls = []
@@ -367,7 +368,7 @@ class GeminiLLM(LLMClient):
             _raw_content=raw_content,
         )
 
-    def _call_with_retry(self, fn, retries: int | None = None):
+    def _call_with_retry(self, fn: Callable[..., Any], retries: int | None = None) -> Any:
         """Call fn with exponential backoff on transient errors."""
         max_retries = retries if retries is not None else self._max_retries
         last_error = None

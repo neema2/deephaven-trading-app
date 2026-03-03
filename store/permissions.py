@@ -4,9 +4,16 @@ Sharing updates readers/writers on ALL versions of an entity.
 All operations run as the entity owner (enforced by RLS).
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import psycopg2.extensions
 
 
-def share_read(conn, entity_id, to_user):
+
+def share_read(conn: psycopg2.extensions.connection, entity_id: str, to_user: str) -> bool:
     """Grant read access on all versions of an entity to another user.
     Only the owner (or a writer) can do this — RLS enforces."""
     with conn.cursor() as cur:
@@ -23,7 +30,7 @@ def share_read(conn, entity_id, to_user):
         return cur.fetchone() is not None
 
 
-def share_write(conn, entity_id, to_user):
+def share_write(conn: psycopg2.extensions.connection, entity_id: str, to_user: str) -> bool:
     """Grant read+write access on all versions of an entity to another user.
     Only the owner (or a writer) can do this — RLS enforces."""
     with conn.cursor() as cur:
@@ -40,7 +47,7 @@ def share_write(conn, entity_id, to_user):
         return cur.fetchone() is not None
 
 
-def unshare_read(conn, entity_id, from_user):
+def unshare_read(conn: psycopg2.extensions.connection, entity_id: str, from_user: str) -> bool:
     """Revoke read access from a user on all versions."""
     with conn.cursor() as cur:
         cur.execute(
@@ -55,7 +62,7 @@ def unshare_read(conn, entity_id, from_user):
         return cur.fetchone() is not None
 
 
-def unshare_write(conn, entity_id, from_user):
+def unshare_write(conn: psycopg2.extensions.connection, entity_id: str, from_user: str) -> bool:
     """Revoke write access from a user on all versions."""
     with conn.cursor() as cur:
         cur.execute(
@@ -70,7 +77,7 @@ def unshare_write(conn, entity_id, from_user):
         return cur.fetchone() is not None
 
 
-def list_shared_with(conn, entity_id):
+def list_shared_with(conn: psycopg2.extensions.connection, entity_id: str) -> dict | None:
     """List who has read/write access to an entity (from latest version).
     Returns dict with readers/writers lists. Only visible if you can see the entity."""
     with conn.cursor() as cur:

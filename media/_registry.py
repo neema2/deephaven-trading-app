@@ -11,7 +11,7 @@ _lock = threading.Lock()
 
 
 def register_alias(name: str, endpoint: str, access_key: str, secret_key: str,
-                   bucket: str = "media"):
+                   bucket: str = "media") -> None:
     """Register a media server alias."""
     with _lock:
         _aliases[name] = {

@@ -12,8 +12,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from objectstore import S3Client
+
+if TYPE_CHECKING:
+    from ai._embeddings import EmbeddingProvider
+    from ai.client import AI
 
 from media.chunking import chunk_text
 from media.extraction import detect_content_type, extract_text
@@ -61,8 +66,8 @@ class MediaStore:
         self,
         alias_or_endpoint: str | None = None,
         *,
-        ai=None,
-        embedding_provider=None,
+        ai: AI | None = None,
+        embedding_provider: EmbeddingProvider | None = None,
         data_dir: str | None = None,
         # Private — backward compat / tests
         _s3_endpoint: str | None = None,
@@ -103,8 +108,9 @@ class MediaStore:
         else:
             self._embedder = embedding_provider
 
-    def _resolve_connection(self, alias_or_endpoint, data_dir,
-                            s3_endpoint, s3_access_key, s3_secret_key, s3_bucket):
+    def _resolve_connection(self, alias_or_endpoint: str | None, data_dir: str | None,
+                            s3_endpoint: str | None, s3_access_key: str | None,
+                            s3_secret_key: str | None, s3_bucket: str | None) -> tuple:
         """Resolve S3 connection info from alias, data_dir, or explicit params."""
         # 1. Try alias
         if alias_or_endpoint is not None:

@@ -29,6 +29,7 @@ Adds to the class:
 """
 
 import re
+from typing import Any
 
 from streaming.table import TickingTable
 
@@ -39,7 +40,7 @@ _registry = {}
 _PRIMITIVE_TYPES = {str, float, int, bool}
 
 
-def _to_snake_case(name):
+def _to_snake_case(name: str) -> str:
     """Convert CamelCase class name to snake_case table name.
 
     FXSpot           → fx_spot
@@ -52,7 +53,7 @@ def _to_snake_case(name):
     return s.lower()
 
 
-def _resolve_column_specs(cls, exclude=None):
+def _resolve_column_specs(cls: type, exclude: set | None = None) -> list[tuple[str, str, type]]:
     """Pure-Python column resolution — no DH imports needed.
 
     Returns list of (col_name, attr_name, python_type).
@@ -92,13 +93,13 @@ def _resolve_column_specs(cls, exclude=None):
     return specs
 
 
-def _tick(self):
+def _tick(self: Any) -> None:
     """Write all column values to the ticking table. Added to decorated classes."""
     cls = type(self)
     cls._ticking_table.write_row(*(getattr(self, attr) for _, attr, _ in cls._ticking_cols))
 
 
-def _apply_ticking(cls, exclude=None):
+def _apply_ticking(cls: type, exclude: set | None = None) -> type:
     """Core logic: create TickingTable, derive live table, attach to class."""
     # Require __key__
     key = getattr(cls, "__key__", None)
@@ -136,7 +137,7 @@ def _apply_ticking(cls, exclude=None):
     return cls
 
 
-def ticking(cls=None, *, exclude=None):
+def ticking(cls: type | None = None, *, exclude: set | None = None) -> type:
     """Class decorator: auto-create TickingTable + live table from Storable fields.
 
     Supports both bare and parameterized usage::
@@ -148,12 +149,12 @@ def ticking(cls=None, *, exclude=None):
         # Bare @ticking (no parentheses)
         return _apply_ticking(cls)
     # Parameterized @ticking(exclude=...)
-    def decorator(cls):
+    def decorator(cls: type) -> type:
         return _apply_ticking(cls, exclude=exclude)
     return decorator
 
 
-def get_tables():
+def get_tables() -> dict:
     """Return dict of all registered tables: {name_raw: TickingTable, name_live: LiveTable}.
 
     Returns wrapped tables so all ops are auto-locked.
@@ -165,6 +166,6 @@ def get_tables():
     return tables
 
 
-def get_ticking_tables():
+def get_ticking_tables() -> dict:
     """Return dict of all registered TickingTable instances: {name: TickingTable}."""
     return {name: tt for name, (tt, _live) in _registry.items()}

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 from ai import Agent, tool
 
@@ -54,7 +55,7 @@ Always report what was uploaded/found with counts and key details.
 def create_document_tools(ctx: _PlatformContext) -> list:
     """Create Document agent tools bound to a _PlatformContext."""
 
-    def _get_ms():
+    def _get_ms() -> object:
         if ctx.media_store is None:
             raise RuntimeError("No MediaStore configured in _PlatformContext")
         return ctx.media_store
@@ -288,7 +289,7 @@ def create_document_tools(ctx: _PlatformContext) -> list:
             extract_structured_data, bulk_upload, tag_documents]
 
 
-def create_document_agent(ctx: _PlatformContext, **kwargs) -> Agent:
+def create_document_agent(ctx: _PlatformContext, **kwargs: Any) -> Agent:
     """Create a Document Agent bound to a _PlatformContext."""
     tools = create_document_tools(ctx)
     return Agent(

@@ -27,6 +27,7 @@ Three tiers of side-effects on each Transition:
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -48,7 +49,7 @@ class Transition:
     """
     from_state: str
     to_state: str
-    guard: object = None            # Optional[Expr] — avoid circular import
+    guard: Any = None               # Expr | Callable — avoid circular import
     action: Callable | None = None
     on_exit: Callable | None = None
     on_enter: Callable | None = None
@@ -59,7 +60,7 @@ class Transition:
 class InvalidTransition(Exception):
     """Raised when the transition edge does not exist."""
 
-    def __init__(self, from_state, to_state, allowed) -> None:
+    def __init__(self, from_state: str, to_state: str, allowed: list[str]) -> None:
         self.from_state = from_state
         self.to_state = to_state
         self.allowed = allowed
@@ -72,7 +73,7 @@ class InvalidTransition(Exception):
 class GuardFailure(Exception):
     """Raised when a transition edge exists but the guard evaluates to False."""
 
-    def __init__(self, from_state, to_state, guard) -> None:
+    def __init__(self, from_state: str, to_state: str, guard: Any) -> None:
         self.from_state = from_state
         self.to_state = to_state
         self.guard = guard
@@ -84,7 +85,7 @@ class GuardFailure(Exception):
 class TransitionNotPermitted(Exception):
     """Raised when the user is not authorized to trigger a transition."""
 
-    def __init__(self, from_state, to_state, user, allowed_by) -> None:
+    def __init__(self, from_state: str, to_state: str, user: str, allowed_by: list[str]) -> None:
         self.from_state = from_state
         self.to_state = to_state
         self.user = user
@@ -111,7 +112,7 @@ class StateMachine:
     transitions: list = []
 
     @classmethod
-    def get_transition(cls, from_state, to_state):
+    def get_transition(cls, from_state: str, to_state: str) -> Transition | None:
         """Return the Transition object for this edge, or None."""
         for t in cls.transitions:
             if t.from_state == from_state and t.to_state == to_state:
@@ -119,7 +120,7 @@ class StateMachine:
         return None
 
     @classmethod
-    def validate_transition(cls, from_state, to_state, context=None, user=None, obj=None):
+    def validate_transition(cls, from_state: str, to_state: str, context: dict | None = None, user: str | None = None, obj: Any = None) -> Transition:
         """
         Validate and return the Transition object.
 
@@ -163,7 +164,7 @@ class StateMachine:
         return t
 
     @classmethod
-    def allowed_transitions(cls, from_state):
+    def allowed_transitions(cls, from_state: str) -> list[str]:
         """Return list of valid next state names from from_state."""
         return [t.to_state for t in cls.transitions if t.from_state == from_state]
 

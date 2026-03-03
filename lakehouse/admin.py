@@ -18,6 +18,7 @@ Platform usage::
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from lakehouse._registry import register_alias as _register_alias
 from lakehouse.catalog import create_catalog
@@ -94,7 +95,7 @@ class LakehouseServer:
             raise RuntimeError("LakehouseServer not started")
         return self._stack.pg_url
 
-    def register_alias(self, name: str):
+    def register_alias(self, name: str) -> None:
         """Register this server's connection info under an alias name."""
         _register_alias(
             name,
@@ -106,7 +107,7 @@ class LakehouseServer:
         await self.start()
         return self
 
-    async def __aexit__(self, *args: object) -> None:
+    async def __aexit__(self, *args: Any) -> None:
         await self.stop()
 
 

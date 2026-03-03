@@ -27,6 +27,11 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ai.agent import Agent
+    from ai.client import AI
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +81,7 @@ class EvalRunner:
             If not provided, uses substring matching only.
     """
 
-    def __init__(self, agent, judge=None) -> None:
+    def __init__(self, agent: Agent, judge: AI | None = None) -> None:
         self._agent = agent
         self._judge = judge
         self._results: list[EvalResult] = []
@@ -190,7 +195,7 @@ class EvalRunner:
         Returns:
             Comparison dict.
         """
-        def _stats(results):
+        def _stats(results: list[EvalResult]) -> dict:
             total = len(results)
             passed = sum(1 for r in results if r.passed)
             avg_lat = sum(r.latency_ms for r in results) / total if total else 0

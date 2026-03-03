@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 import math
 
 from ai import Agent, tool
@@ -317,7 +318,7 @@ def create_timeseries_tools(ctx: _PlatformContext) -> list:
             ingest_historical_csv, compute_realized_vol, compare_cross_exchange]
 
 
-def create_timeseries_agent(ctx: _PlatformContext, **kwargs) -> Agent:
+def create_timeseries_agent(ctx: _PlatformContext, **kwargs: Any) -> Agent:
     """Create a Timeseries Agent bound to a _PlatformContext."""
     tools = create_timeseries_tools(ctx)
     return Agent(

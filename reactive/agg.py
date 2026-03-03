@@ -21,7 +21,7 @@ Usage inside @computed::
 """
 
 
-def group_by(pairs, *, normalize=False):
+def group_by(pairs: list, *, normalize: bool = False) -> dict:
     """Group-and-sum over (key, value) pairs.
 
     Args:
@@ -54,7 +54,7 @@ def group_by(pairs, *, normalize=False):
     return {k: round(v / total * 100, 1) for k, v in groups.items()}
 
 
-def rank_by(pairs, *, desc=True, as_pct=False):
+def rank_by(pairs: list, *, desc: bool = True, as_pct: bool = False) -> list[dict]:
     """Sort (label, value) pairs and optionally compute contribution %.
 
     Args:
@@ -98,6 +98,6 @@ def rank_by(pairs, *, desc=True, as_pct=False):
     ]
 
 
-def _pair_sort_key(pair):
+def _pair_sort_key(pair: tuple) -> object:
     """Sort key for (label, value) pairs — extracts the value."""
     return pair[1]

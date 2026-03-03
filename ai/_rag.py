@@ -22,9 +22,13 @@ Usage::
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from ai._llm import LLMClient
 from ai._types import Message, RAGResult
+
+if TYPE_CHECKING:
+    from media.store import MediaStore
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +63,7 @@ class RAGPipeline:
     def __init__(
         self,
         llm: LLMClient,
-        media_store,
+        media_store: MediaStore,
         search_mode: str = "hybrid",
     ) -> None:
         self._llm = llm

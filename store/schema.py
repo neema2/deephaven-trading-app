@@ -4,12 +4,19 @@ indexes, RLS policies, and user provisioning.
 All DDL runs as app_admin (the table owner).
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import psycopg2.extensions
+
 
 GROUP_ROLE = "app_user"
 ADMIN_ROLE = "app_admin"
 
 
-def bootstrap_schema(admin_conn):
+def bootstrap_schema(admin_conn: psycopg2.extensions.connection) -> None:
     """Create the object_events table, indexes, and RLS policies. Idempotent."""
     admin_conn.autocommit = True
     with admin_conn.cursor() as cur:
@@ -168,7 +175,7 @@ def bootstrap_schema(admin_conn):
         cur.execute(f"GRANT SELECT, INSERT, UPDATE ON subscription_checkpoints TO {GROUP_ROLE};")
 
 
-def _provision_user(admin_conn, username, password):
+def _provision_user(admin_conn: psycopg2.extensions.connection, username: str, password: str) -> None:
     """
     Create a new PG role for a user. Zero-trust: NOSUPERUSER, NOCREATEDB,
     NOCREATEROLE, NOBYPASSRLS, LOGIN with password, inherits app_user.
@@ -195,7 +202,7 @@ def _provision_user(admin_conn, username, password):
             )
 
 
-def _validate_identifier(name):
+def _validate_identifier(name: str) -> None:
     """Prevent SQL injection in role names."""
     if not name.isalnum() and not all(c.isalnum() or c == '_' for c in name):
         raise ValueError(f"Invalid identifier: {name!r}")

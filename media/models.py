@@ -17,8 +17,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from store.base import Storable
+
+if TYPE_CHECKING:
+    import psycopg2.extensions
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +73,7 @@ class Document(Storable):
 # ── PG Schema for Full-Text Search ──────────────────────────────────────
 
 
-def bootstrap_search_schema(admin_conn, embedding_dim: int = 768) -> None:
+def bootstrap_search_schema(admin_conn: psycopg2.extensions.connection, embedding_dim: int = 768) -> None:
     """
     Create the document_search table with tsvector + GIN index and pgvector embedding.
 
@@ -190,7 +194,7 @@ def bootstrap_search_schema(admin_conn, embedding_dim: int = 768) -> None:
     admin_conn.autocommit = False
 
 
-def bootstrap_chunks_schema(admin_conn, embedding_dim: int = 768) -> None:
+def bootstrap_chunks_schema(admin_conn: psycopg2.extensions.connection, embedding_dim: int = 768) -> None:
     """
     Create the document_chunks table for per-chunk embeddings.
 
@@ -316,7 +320,7 @@ def bootstrap_chunks_schema(admin_conn, embedding_dim: int = 768) -> None:
     admin_conn.autocommit = False
 
 
-def upsert_search_index(conn, entity_id: str, owner: str,
+def upsert_search_index(conn: psycopg2.extensions.connection, entity_id: str, owner: str,
                          readers: list, writers: list,
                          title: str, filename: str,
                          content_type: str, tags: list, extracted_text: str) -> None:
@@ -357,14 +361,14 @@ def upsert_search_index(conn, entity_id: str, owner: str,
     conn.commit()
 
 
-def delete_search_index(conn, entity_id: str) -> None:
+def delete_search_index(conn: psycopg2.extensions.connection, entity_id: str) -> None:
     """Remove a document from the search index."""
     with conn.cursor() as cur:
         cur.execute("DELETE FROM document_search WHERE entity_id = %s", (entity_id,))
     conn.commit()
 
 
-def search_documents(conn, query: str, content_type: str | None = None,
+def search_documents(conn: psycopg2.extensions.connection, query: str, content_type: str | None = None,
                       tags: list | None = None, limit: int = 50) -> list[dict]:
     """
     Full-text search over documents.
@@ -411,7 +415,7 @@ def search_documents(conn, query: str, content_type: str | None = None,
         return [dict(zip(columns, row)) for row in rows]
 
 
-def upsert_document_chunks(conn, entity_id: str, chunks, embeddings: list) -> None:
+def upsert_document_chunks(conn: psycopg2.extensions.connection, entity_id: str, chunks: list, embeddings: list) -> None:
     """
     Replace all chunks for a document with new chunks and embeddings.
 
@@ -444,7 +448,7 @@ def upsert_document_chunks(conn, entity_id: str, chunks, embeddings: list) -> No
     conn.commit()
 
 
-def update_document_embedding(conn, entity_id: str, embedding: list) -> None:
+def update_document_embedding(conn: psycopg2.extensions.connection, entity_id: str, embedding: list) -> None:
     """
     Update the whole-document embedding in document_search.
 
@@ -462,7 +466,7 @@ def update_document_embedding(conn, entity_id: str, embedding: list) -> None:
     conn.commit()
 
 
-def semantic_search_documents(conn, query_embedding: list, limit: int = 10) -> list[dict]:
+def semantic_search_documents(conn: psycopg2.extensions.connection, query_embedding: list, limit: int = 10) -> list[dict]:
     """
     Search document chunks by cosine similarity to a query embedding.
 
@@ -497,7 +501,7 @@ def semantic_search_documents(conn, query_embedding: list, limit: int = 10) -> l
 
 
 def hybrid_search_documents(
-    conn,
+    conn: psycopg2.extensions.connection,
     query: str,
     query_embedding: list,
     limit: int = 10,

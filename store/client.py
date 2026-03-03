@@ -22,7 +22,7 @@ from store.subscriptions import ChangeEvent
 class VersionConflict(Exception):
     """Raised when optimistic concurrency check fails."""
 
-    def __init__(self, entity_id, expected_version, actual_version) -> None:
+    def __init__(self, entity_id: str, expected_version: int, actual_version: int) -> None:
         self.entity_id = entity_id
         self.expected_version = expected_version
         self.actual_version = actual_version
@@ -35,7 +35,7 @@ class VersionConflict(Exception):
 class QueryResult:
     """Result of a paginated query. Contains items and an optional next_cursor."""
 
-    def __init__(self, items, next_cursor=None) -> None:
+    def __init__(self, items: list, next_cursor: Any = None) -> None:
         self.items = items
         self.next_cursor = next_cursor
 
@@ -64,8 +64,8 @@ class StoreClient:
         client.close()
     """
 
-    def __init__(self, user, password, host="localhost", port=5432, dbname="postgres",
-                 event_bus=None) -> None:
+    def __init__(self, user: str, password: str, host: str = "localhost", port: int = 5432, dbname: str = "postgres",
+                 event_bus: Any = None) -> None:
         self.user = user
         self.event_bus = event_bus
         self.conn = psycopg2.connect(
@@ -80,7 +80,7 @@ class StoreClient:
 
     # ── Write operations (all append-only) ────────────────────────────
 
-    def write(self, obj, valid_from=None):
+    def write(self, obj: Any, valid_from: datetime | None = None) -> str:
         """
         Create a new entity (version 1). Returns the entity_id.
         If the Storable class has a state machine, initial state is set automatically.
@@ -119,7 +119,7 @@ class StoreClient:
             self._emit_event(obj)
             return obj._store_entity_id
 
-    def update(self, obj, valid_from=None):
+    def update(self, obj: Any, valid_from: datetime | None = None) -> None:
         """
         Create a new version of an existing entity (never overwrites).
         Automatically determines event_type: UPDATED or CORRECTED (if backdated).
@@ -189,7 +189,7 @@ class StoreClient:
             obj._store_event_type = event_type
             self._emit_event(obj)
 
-    def delete(self, obj):
+    def delete(self, obj: Any) -> bool:
         """
         Soft-delete: creates a DELETED tombstone event.
         The entity disappears from read()/query() but remains in history().
@@ -238,7 +238,7 @@ class StoreClient:
             self._emit_event(obj)
             return row[0] is not None
 
-    def transition(self, obj, new_state, valid_from=None):
+    def transition(self, obj: Any, new_state: str, valid_from: datetime | None = None) -> None:
         """
         Transition an entity to a new lifecycle state.
 
@@ -350,7 +350,7 @@ class StoreClient:
                 )
             wf_engine.workflow(t.start_workflow, obj._store_entity_id)
 
-    def write_many(self, objects, valid_from=None):
+    def write_many(self, objects: list, valid_from: datetime | None = None) -> list[str]:
         """
         Write multiple new entities in a single transaction.
         Returns list of entity_ids.
@@ -370,7 +370,7 @@ class StoreClient:
         finally:
             self.conn.autocommit = old_autocommit
 
-    def update_many(self, objects, valid_from=None):
+    def update_many(self, objects: list, valid_from: datetime | None = None) -> None:
         """
         Update multiple entities in a single transaction.
         Optimistic concurrency is automatic on each entity.
@@ -389,7 +389,7 @@ class StoreClient:
 
     # ── Read operations ───────────────────────────────────────────────
 
-    def read(self, cls, entity_id):
+    def read(self, cls: type, entity_id: str) -> Any:
         """
         Read the latest non-deleted version of an entity.
         Returns None if not found, not visible, or deleted.
@@ -415,7 +415,7 @@ class StoreClient:
                 return None
             return self._row_to_object(cls, row)
 
-    def query(self, cls, filters=None, limit=100, cursor=None):
+    def query(self, cls: type, filters: dict | None = None, limit: int = 100, cursor: Any = None) -> "QueryResult":
         """
         Query current (latest non-deleted) entities of a given type.
 
@@ -470,7 +470,7 @@ class StoreClient:
 
         return QueryResult(items=items, next_cursor=next_cursor)
 
-    def history(self, cls, entity_id):
+    def history(self, cls: type, entity_id: str) -> list:
         """
         Return all versions of an entity, ordered by version ascending.
         Includes DELETED tombstones.
@@ -490,7 +490,7 @@ class StoreClient:
             rows = cur.fetchall()
             return [self._row_to_object(cls, row) for row in rows]
 
-    def as_of(self, cls, entity_id, tx_time=None, valid_time=None):
+    def as_of(self, cls: type, entity_id: str, tx_time: datetime | None = None, valid_time: datetime | None = None) -> Any:
         """
         Bi-temporal point-in-time query.
 
@@ -529,7 +529,7 @@ class StoreClient:
                 return None
             return self._row_to_object(cls, row)
 
-    def count(self, cls=None):
+    def count(self, cls: type | None = None) -> int:
         """Count current (latest non-deleted) entities visible to this user."""
         with self.conn.cursor() as cur:
             if cls:
@@ -559,7 +559,7 @@ class StoreClient:
                 )
             return cur.fetchone()[0]
 
-    def audit(self, entity_id):
+    def audit(self, entity_id: str) -> list[dict]:
         """
         Return the full audit trail for an entity: who changed what, when.
         Returns list of AuditEntry dicts ordered by version.
@@ -590,7 +590,7 @@ class StoreClient:
                 for row in rows
             ]
 
-    def list_types(self):
+    def list_types(self) -> list[str]:
         """List distinct type_names visible to the current user."""
         with self.conn.cursor() as cur:
             cur.execute(
@@ -600,7 +600,7 @@ class StoreClient:
 
     # ── Internal helpers ──────────────────────────────────────────────
 
-    def _emit_event(self, obj):
+    def _emit_event(self, obj: Any) -> None:
         """Emit a ChangeEvent to the event bus (if wired)."""
         if self.event_bus is None:
             return
@@ -615,7 +615,7 @@ class StoreClient:
         )
         self.event_bus.emit(event)
 
-    def _next_version(self, entity_id):
+    def _next_version(self, entity_id: str) -> int:
         """Get the next version number for an entity."""
         with self.conn.cursor() as cur:
             cur.execute(
@@ -624,7 +624,7 @@ class StoreClient:
             )
             return cur.fetchone()[0]
 
-    def _row_to_object(self, cls, row):
+    def _row_to_object(self, cls: type, row: tuple) -> Any:
         """Convert a database row to a typed Python object with bi-temporal metadata."""
         (event_id, entity_id, version, type_name, owner,
          updated_by, readers, writers, data, state, event_type,
@@ -651,7 +651,7 @@ class StoreClient:
         obj._store_event_type = event_type
         return obj
 
-    def close(self):
+    def close(self) -> None:
         """Close the database connection."""
         if self.conn and not self.conn.closed:
             self.conn.close()

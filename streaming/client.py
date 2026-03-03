@@ -19,6 +19,8 @@ Usage::
 
 from __future__ import annotations
 
+from typing import Any
+
 
 class StreamingClient:
     """Lightweight client for querying a remote streaming server.
@@ -63,25 +65,25 @@ class StreamingClient:
             "port": port or 10000,
         }
 
-    def list_tables(self):
+    def list_tables(self) -> Any:
         """Return names of all tables in the server's global scope."""
         return self.session.tables
 
-    def open_table(self, name):
+    def open_table(self, name: str) -> Any:
         """Open a server-side table by name."""
         return self.session.open_table(name)
 
-    def run_script(self, script: str):
+    def run_script(self, script: str) -> None:
         """Execute a Python script on the server. Use this to create
         custom derived tables that live server-side."""
         self.session.run_script(script)
 
-    def bind_table(self, name: str, table):
+    def bind_table(self, name: str, table: Any) -> None:
         """Publish a client-created table to the server's global scope
         so it is visible in the web IDE and to other sessions."""
         self.session.bind_table(name=name, table=table)
 
-    def close(self):
+    def close(self) -> None:
         """Close the session."""
         self.session.close()
         print("Session closed.")
@@ -89,5 +91,5 @@ class StreamingClient:
     def __enter__(self) -> "StreamingClient":
         return self
 
-    def __exit__(self, *args: object) -> None:
+    def __exit__(self, *args: Any) -> None:
         self.close()

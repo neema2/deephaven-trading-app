@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 import math
 
 from ai import Agent, tool
@@ -493,7 +494,7 @@ Return JSON with:
             suggest_visualization]
 
 
-def create_datascience_agent(ctx: _PlatformContext, **kwargs) -> Agent:
+def create_datascience_agent(ctx: _PlatformContext, **kwargs: Any) -> Agent:
     """Create a Data Science Agent bound to a _PlatformContext."""
     tools = create_datascience_tools(ctx)
     return Agent(

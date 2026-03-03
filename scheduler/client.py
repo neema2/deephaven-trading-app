@@ -13,6 +13,7 @@ Public import via ``scheduler``::
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from scheduler.models import Run, Schedule
@@ -56,7 +57,7 @@ class Scheduler:
         """Manually trigger a schedule by name."""
         return self._server.fire(name)
 
-    def tick(self, now=None) -> list[Run]:
+    def tick(self, now: datetime | None = None) -> list[Run]:
         """Check due schedules, fire any that are due."""
         return self._server.tick(now)
 

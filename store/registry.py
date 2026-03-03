@@ -87,7 +87,7 @@ class ColumnRegistry:
 
     # ── Define columns ────────────────────────────────────────────
 
-    def define(self, name: str, python_type: type, **kwargs) -> ColumnDef:
+    def define(self, name: str, python_type: type, **kwargs: Any) -> ColumnDef:
         """Register a new column in the catalog.
 
         Raises RegistryError if:
@@ -195,7 +195,7 @@ class ColumnRegistry:
 
     # ── Class validation ──────────────────────────────────────────
 
-    def validate_class(self, cls) -> None:
+    def validate_class(self, cls: type) -> None:
         """Validate that all fields on cls are registered columns.
 
         Called by Storable.__init_subclass__ (which fires BEFORE @dataclass).
@@ -272,7 +272,7 @@ class ColumnRegistry:
 
     # ── Instance validation ───────────────────────────────────────
 
-    def validate_instance(self, obj) -> list:
+    def validate_instance(self, obj: Any) -> list:
         """Validate runtime values against column constraints.
 
         Checks enum, min_value, max_value, max_length, pattern, nullable.
@@ -343,7 +343,7 @@ class ColumnRegistry:
         """Return all validated entity classes."""
         return list(self._entities.keys())
 
-    def columns_for(self, cls) -> list:
+    def columns_for(self, cls: type) -> list:
         """Return ColumnDefs for all fields on a validated entity class."""
         if cls not in self._entities:
             return []

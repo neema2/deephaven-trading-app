@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 from ai import Agent, tool
 
@@ -61,7 +62,7 @@ Tables are accessible as lakehouse.default.<table_name> in SQL.
 def create_lakehouse_tools(ctx: _PlatformContext) -> list:
     """Create Lakehouse agent tools bound to a _PlatformContext."""
 
-    def _get_lh():
+    def _get_lh() -> object:
         """Get the Lakehouse client, raising if not configured."""
         if ctx.lakehouse is None:
             raise RuntimeError("No Lakehouse configured in _PlatformContext")
@@ -296,7 +297,7 @@ Only return valid JSON."""
 # ── Agent factory ──────────────────────────────────────────────────────
 
 
-def create_lakehouse_agent(ctx: _PlatformContext, **kwargs) -> Agent:
+def create_lakehouse_agent(ctx: _PlatformContext, **kwargs: Any) -> Agent:
     """Create a Lakehouse Agent bound to a _PlatformContext.
 
     Args:

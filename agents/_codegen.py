@@ -205,7 +205,7 @@ def _safe_builtins() -> dict:
 
 # ── Auto-import ────────────────────────────────────────────────────
 
-def _ensure_dirs():
+def _ensure_dirs() -> None:
     """Create the agent_generated directories and __init__.py files."""
     for d in (COLUMNS_DIR, MODELS_DIR):
         d.mkdir(parents=True, exist_ok=True)

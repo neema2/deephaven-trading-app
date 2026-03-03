@@ -24,6 +24,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+from typing import Any
 
 from ai import Agent, tool
 
@@ -115,7 +116,7 @@ def _build_storable_class(name: str, fields: list[dict]) -> type:
     return cls
 
 
-def _serialize_storable(obj) -> dict:
+def _serialize_storable(obj: Any) -> dict:
     """Convert a Storable instance to a JSON-safe dict."""
     result = {}
     for f in dataclasses.fields(obj):
@@ -488,7 +489,7 @@ def create_oltp_tools(ctx: _PlatformContext) -> list:
 # ── Agent factory ──────────────────────────────────────────────────────
 
 
-def create_oltp_agent(ctx: _PlatformContext, **kwargs) -> Agent:
+def create_oltp_agent(ctx: _PlatformContext, **kwargs: Any) -> Agent:
     """Create an OLTP Agent bound to a _PlatformContext.
 
     Args:

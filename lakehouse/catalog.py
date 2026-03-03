@@ -31,7 +31,7 @@ def create_catalog(
     s3_access_key: str | None = None,
     s3_secret_key: str | None = None,
     s3_region: str | None = None,
-):
+) -> object:
     """
     Create a PyIceberg REST catalog connected to Lakekeeper + S3-compatible storage.
 

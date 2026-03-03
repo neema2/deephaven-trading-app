@@ -1,12 +1,18 @@
 """Scheduler alias registry (internal)."""
 
+from __future__ import annotations
+
 import threading
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from scheduler.server import SchedulerServer
 
 _aliases: dict[str, dict] = {}
 _lock = threading.Lock()
 
 
-def register_alias(name: str, server):
+def register_alias(name: str, server: SchedulerServer) -> None:
     """Register a scheduler server under an alias name."""
     with _lock:
         _aliases[name] = {"server": server}

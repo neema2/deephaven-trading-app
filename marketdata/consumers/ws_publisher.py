@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -95,7 +97,7 @@ class WebSocketPublisher:
     def client_count(self) -> int:
         return len(self._clients)
 
-    async def _dispatch_loop(self, msg_iter) -> None:
+    async def _dispatch_loop(self, msg_iter: AsyncIterator[Any]) -> None:
         """Main loop: read messages from bus, fan out to matching clients."""
         try:
             async for msg in msg_iter:

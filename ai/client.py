@@ -38,6 +38,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Generator
+from typing import TYPE_CHECKING
 
 from ai._types import (
     ExtractionResult,
@@ -45,6 +46,10 @@ from ai._types import (
     Message,
     RAGResult,
 )
+
+if TYPE_CHECKING:
+    from ai._embeddings import EmbeddingProvider
+    from media.store import MediaStore
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +146,7 @@ class AI:
     def ask(
         self,
         question: str,
-        documents=None,
+        documents: MediaStore | None = None,
         system_prompt: str | None = None,
         search_mode: str = "hybrid",
         limit: int = 5,
@@ -245,7 +250,7 @@ class AI:
             max_iterations=max_iterations,
         )
 
-    def search_tools(self, media_store) -> list[dict]:
+    def search_tools(self, media_store: MediaStore) -> list[dict]:
         """
         Get tool declarations for document search on a MediaStore.
 
@@ -266,7 +271,7 @@ class AI:
     # ── Internal ─────────────────────────────────────────────────────────
 
     @property
-    def embedder(self):
+    def embedder(self) -> EmbeddingProvider:
         """Internal embedding provider. Used by MediaStore."""
         return self._embedder
 

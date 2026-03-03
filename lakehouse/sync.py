@@ -12,11 +12,17 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 from pyiceberg.catalog import Catalog
 
 from lakehouse.models import SyncState
+
+if TYPE_CHECKING:
+    import psycopg2.extensions
+
+    from timeseries.base import TSDBBackend
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +55,7 @@ class SyncEngine:
 
     # ── Sync: PG object_events → Iceberg events table ──────────────────────
 
-    def sync_events(self, pg_conn) -> int:
+    def sync_events(self, pg_conn: psycopg2.extensions.connection) -> int:
         """
         Incremental sync from PG object_events to Iceberg events table.
 
@@ -108,7 +114,7 @@ class SyncEngine:
 
     # ── Sync: QuestDB ticks → Iceberg ticks table ──────────────────────────
 
-    def sync_ticks(self, backend) -> int:
+    def sync_ticks(self, backend: TSDBBackend) -> int:
         """
         Incremental sync from a TSDBBackend to Iceberg ticks table.
 
@@ -149,7 +155,7 @@ class SyncEngine:
 
     # ── Sync: QuestDB bars → Iceberg bars_daily table ──────────────────────
 
-    def sync_bars(self, backend, interval: str = "1d") -> int:
+    def sync_bars(self, backend: TSDBBackend, interval: str = "1d") -> int:
         """
         Sync OHLCV bars from a TSDBBackend to Iceberg bars_daily table.
 
@@ -189,7 +195,7 @@ class SyncEngine:
 
     # ── Full sync (convenience) ─────────────────────────────────────────────
 
-    def sync_all(self, pg_conn=None, backend=None) -> dict:
+    def sync_all(self, pg_conn: psycopg2.extensions.connection | None = None, backend: TSDBBackend | None = None) -> dict:
         """
         Run all available sync operations.
 
@@ -343,7 +349,7 @@ def _bars_to_arrow(bars: list, tick_type: str, interval: str) -> pa.Table:
     """Convert bar objects/dicts to Arrow table matching BARS_SCHEMA."""
     n = len(bars)
 
-    def _get(bar, key):
+    def _get(bar: Any, key: str) -> Any:
         if isinstance(bar, dict):
             return bar.get(key)
         return getattr(bar, key, None)
@@ -371,7 +377,7 @@ def _bars_to_arrow(bars: list, tick_type: str, interval: str) -> pa.Table:
     })
 
 
-def _ensure_tz(dt) -> datetime | None:
+def _ensure_tz(dt: datetime | None) -> datetime | None:
     """Ensure a datetime is timezone-aware (UTC). Returns None if input is None."""
     if dt is None:
         return None

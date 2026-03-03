@@ -11,10 +11,15 @@ import logging
 import time as _time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from scheduler.dag import execution_order, get_task
-from scheduler.models import Run, Schedule, TaskResult
+from scheduler.models import Run, Schedule, Task, TaskResult
 from scheduler.resolve import resolve_fn
+
+if TYPE_CHECKING:
+    from store.client import StoreClient
+    from workflow.engine import WorkflowEngine
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +32,7 @@ class DAGRunner:
     If a task fails, its dependents are marked SKIPPED.
     """
 
-    def __init__(self, engine, client, max_workers: int = 4) -> None:
+    def __init__(self, engine: WorkflowEngine, client: StoreClient, max_workers: int = 4) -> None:
         """
         Args:
             engine: WorkflowEngine instance.
@@ -132,7 +137,7 @@ class DAGRunner:
 
     def _execute_task(
         self,
-        task,
+        task: Task,
     ) -> TaskResult:
         """Execute a single task, resolving target_fn via importlib.
 

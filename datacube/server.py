@@ -25,6 +25,7 @@ import json
 import logging
 import webbrowser
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import perspective
 import perspective.handlers.tornado
@@ -32,6 +33,9 @@ import pyarrow as pa
 import tornado.ioloop
 import tornado.web
 import tornado.websocket
+
+if TYPE_CHECKING:
+    from datacube.engine import Datacube
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +71,7 @@ def _arrow_to_ipc(table: pa.Table) -> bytes:
 # ── State helpers ─────────────────────────────────────────────────
 
 
-def _snapshot_state(dc) -> dict:
+def _snapshot_state(dc: Datacube) -> dict:
     """JSON-serializable datacube state for the client."""
     snap = dc.snapshot
     return {
@@ -115,7 +119,7 @@ def _pad_table(table: pa.Table, target_cols: list[str], target_schema: pa.Schema
     return pa.table(arrays)
 
 
-def _get_source_schema(dc) -> pa.Schema:
+def _get_source_schema(dc: Datacube) -> pa.Schema:
     """Get the normalized Arrow schema for the source.
 
     When pivot_by is active, returns the pivoted schema (using a sample
@@ -132,7 +136,7 @@ def _get_source_schema(dc) -> pa.Schema:
     return _normalize_arrow(base_dc.query()).schema
 
 
-def _build_tree_result(dc, expanded_keys: set, source_schema: pa.Schema) -> pa.Table:
+def _build_tree_result(dc: Datacube, expanded_keys: set, source_schema: pa.Schema) -> pa.Table:
     """Build a hierarchical tree table with LAZY recursive expansion.
 
     Only queries levels that are actually expanded — unexpanded branches
@@ -170,7 +174,7 @@ def _build_tree_result(dc, expanded_keys: set, source_schema: pa.Schema) -> pa.T
 
     has_pivot = bool(snap.pivot_by)
 
-    def _emit_leaves(parent_filters: list[tuple[str, object]], depth: int):
+    def _emit_leaves(parent_filters: list[tuple[str, object]], depth: int) -> None:
         """Fetch and emit leaf rows (no more group fields to expand)."""
         if has_pivot:
             return  # Cross-tab: only show aggregated group rows, not leaf rows
@@ -189,7 +193,7 @@ def _build_tree_result(dc, expanded_keys: set, source_schema: pa.Schema) -> pa.T
                     pf, pa.array([pv] * leaves.num_rows, type=pa.string()))
         chunks.append(_pad_table(leaf_block, all_cols, target_schema))
 
-    def _build_level(depth: int, parent_filters: list[tuple[str, object]]):
+    def _build_level(depth: int, parent_filters: list[tuple[str, object]]) -> None:
         """Lazily build tree rows — only query levels with expanded parents."""
         if depth >= len(group_fields):
             _emit_leaves(parent_filters, depth)
@@ -238,10 +242,10 @@ def _build_tree_result(dc, expanded_keys: set, source_schema: pa.Schema) -> pa.T
 class CmdHandler(tornado.websocket.WebSocketHandler):
     """Datacube command channel — receives JSON, mutates engine, refreshes grid."""
 
-    def check_origin(self, origin):
+    def check_origin(self, origin: str) -> bool:
         return True
 
-    def open(self):
+    def open(self) -> None:
         logger.info("Command channel opened — full reset to initial state")
         state = self.application.dc_state
         dc = state["initial"]
@@ -279,7 +283,7 @@ class CmdHandler(tornado.websocket.WebSocketHandler):
                 "expanded": [],
             }))
 
-    def on_message(self, message):
+    def on_message(self, message: str | bytes) -> None:
         try:
             msg = json.loads(message)
         except json.JSONDecodeError:
@@ -345,7 +349,7 @@ class CmdHandler(tornado.websocket.WebSocketHandler):
             logger.exception("Command failed: %s", cmd)
             self.write_message(json.dumps({"error": str(e)}))
 
-    def _refresh(self):
+    def _refresh(self) -> None:
         """Re-query datacube, update Perspective table, send state to client."""
         state = self.application.dc_state
         dc = state["dc"]
@@ -406,7 +410,7 @@ class CmdHandler(tornado.websocket.WebSocketHandler):
 # ── Entry point ───────────────────────────────────────────────────
 
 
-def run(dc, port: int = 8050, open_browser: bool = True):
+def run(dc: Datacube, port: int = 8050, open_browser: bool = True) -> None:
     """Start the datacube UI server (blocking).
 
     Args:

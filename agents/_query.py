@@ -26,6 +26,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+from typing import Any
 
 from ai import Agent, tool
 
@@ -337,7 +338,7 @@ def create_query_tools(ctx: _PlatformContext) -> list:
             get_md_snapshot, list_all_datasets, describe_dataset]
 
 
-def create_query_agent(ctx: _PlatformContext, **kwargs) -> Agent:
+def create_query_agent(ctx: _PlatformContext, **kwargs: Any) -> Agent:
     """Create a Query Agent bound to a _PlatformContext."""
     tools = create_query_tools(ctx)
     return Agent(

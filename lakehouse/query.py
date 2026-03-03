@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from typing import Any
 
 import duckdb
 import pyarrow as pa
@@ -79,7 +80,7 @@ class Lakehouse:
         self._conn: duckdb.DuckDBPyConnection | None = None
 
     @staticmethod
-    def _resolve(alias_or_catalog, catalog_uri) -> dict:
+    def _resolve(alias_or_catalog: str | None, catalog_uri: str | None) -> dict:
         """Resolve alias or explicit params."""
         if alias_or_catalog is not None:
             from lakehouse._registry import resolve_alias
@@ -173,7 +174,7 @@ class Lakehouse:
             return conn.execute(sql, params).fetch_arrow_table()
         return conn.execute(sql).fetch_arrow_table()
 
-    def query_df(self, sql: str, params: list | None = None):
+    def query_df(self, sql: str, params: list | None = None) -> object:
         """Execute a SQL query and return results as a Pandas DataFrame."""
         conn = self._ensure_conn()
         if params:
@@ -530,7 +531,7 @@ class Lakehouse:
 
     # ── Datacube ────────────────────────────────────────────────────────
 
-    def datacube(self, table_name: str, **kwargs):
+    def datacube(self, table_name: str, **kwargs: Any) -> Any:
         """Create a Datacube over a Lakehouse Iceberg table.
 
         Queries go directly from S3 → DuckDB → result (no Python).
@@ -563,7 +564,7 @@ class Lakehouse:
         """Alias for query_arrow() — backward compatibility with LakehouseQuery."""
         return self.query_arrow(query_str, params)
 
-    def sql_df(self, query_str: str, params: list | None = None):
+    def sql_df(self, query_str: str, params: list | None = None) -> object:
         """Alias for query_df() — backward compatibility with LakehouseQuery."""
         return self.query_df(query_str, params)
 
@@ -576,7 +577,7 @@ LakehouseQuery = Lakehouse
 # ── Module-level helpers ──────────────────────────────────────────────────
 
 
-def _to_arrow(data) -> pa.Table:
+def _to_arrow(data: pa.Table | list | Any) -> pa.Table:
     """Convert various data formats to a PyArrow Table."""
     if isinstance(data, pa.Table):
         return data

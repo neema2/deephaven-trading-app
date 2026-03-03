@@ -13,10 +13,13 @@ Internal:
 import json
 import select
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 import psycopg2
+import psycopg2.extensions
 
 NOTIFY_CHANNEL = "object_events"
 
@@ -47,42 +50,42 @@ class EventBus:
         self._all_listeners = []        # [callback]
         self._lock = threading.Lock()
 
-    def on(self, type_name, callback):
+    def on(self, type_name: str, callback: Callable) -> None:
         """Subscribe to all changes for a given type_name."""
         with self._lock:
             self._type_listeners.setdefault(type_name, []).append(callback)
 
-    def on_entity(self, entity_id, callback):
+    def on_entity(self, entity_id: str, callback: Callable) -> None:
         """Subscribe to changes for a specific entity."""
         with self._lock:
             self._entity_listeners.setdefault(entity_id, []).append(callback)
 
-    def on_all(self, callback):
+    def on_all(self, callback: Callable) -> None:
         """Subscribe to all changes regardless of type or entity."""
         with self._lock:
             self._all_listeners.append(callback)
 
-    def off(self, type_name, callback):
+    def off(self, type_name: str, callback: Callable) -> None:
         """Unsubscribe a type listener."""
         with self._lock:
             listeners = self._type_listeners.get(type_name, [])
             if callback in listeners:
                 listeners.remove(callback)
 
-    def off_entity(self, entity_id, callback):
+    def off_entity(self, entity_id: str, callback: Callable) -> None:
         """Unsubscribe an entity listener."""
         with self._lock:
             listeners = self._entity_listeners.get(entity_id, [])
             if callback in listeners:
                 listeners.remove(callback)
 
-    def off_all(self, callback):
+    def off_all(self, callback: Callable) -> None:
         """Unsubscribe a catch-all listener."""
         with self._lock:
             if callback in self._all_listeners:
                 self._all_listeners.remove(callback)
 
-    def emit(self, event: ChangeEvent):
+    def emit(self, event: ChangeEvent) -> None:
         """Dispatch a ChangeEvent to all matching listeners."""
         with self._lock:
             listeners = list(self._all_listeners)
@@ -112,8 +115,8 @@ class SubscriptionListener:
         subscriber_id: Optional. If set, checkpoint is persisted to DB.
     """
 
-    def __init__(self, event_bus, host, port, dbname, user, password,
-                 subscriber_id=None) -> None:
+    def __init__(self, event_bus: EventBus, host: str, port: int, dbname: str, user: str, password: str,
+                 subscriber_id: str | None = None) -> None:
         self.event_bus = event_bus
         self._conn_params = dict(host=host, port=port, dbname=dbname,
                                  user=user, password=password)
@@ -123,7 +126,7 @@ class SubscriptionListener:
         self._stop_event = threading.Event()
         self._last_tx_time = None
 
-    def start(self):
+    def start(self) -> None:
         """Start the listener background thread."""
         self._stop_event.clear()
         self._conn = psycopg2.connect(**self._conn_params)
@@ -142,7 +145,7 @@ class SubscriptionListener:
         self._thread = threading.Thread(target=self._listen_loop, daemon=True)
         self._thread.start()
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the listener and close the connection."""
         self._stop_event.set()
         if self._thread:
@@ -152,7 +155,7 @@ class SubscriptionListener:
             self._conn.close()
             self._conn = None
 
-    def _listen_loop(self):
+    def _listen_loop(self) -> None:
         """Background loop: poll for NOTIFY, dispatch to bus."""
         while not self._stop_event.is_set():
             if self._conn is None or self._conn.closed:
@@ -164,7 +167,7 @@ class SubscriptionListener:
                     notify = self._conn.notifies.pop(0)
                     self._handle_notify(notify)
 
-    def _handle_notify(self, notify):
+    def _handle_notify(self, notify: psycopg2.extensions.Notify) -> None:
         """Parse a PG notification and emit to EventBus."""
         try:
             payload = json.loads(notify.payload)
@@ -183,7 +186,7 @@ class SubscriptionListener:
         except (json.JSONDecodeError, KeyError):
             pass  # Malformed notification — skip
 
-    def _catch_up(self):
+    def _catch_up(self) -> None:
         """Replay missed events from the event log since last checkpoint."""
         if self._last_tx_time is None:
             self._last_tx_time = datetime.now(timezone.utc)
@@ -216,7 +219,7 @@ class SubscriptionListener:
 
         self._save_checkpoint()
 
-    def _load_checkpoint(self):
+    def _load_checkpoint(self) -> datetime | None:
         """Load the last checkpoint from DB (if subscriber_id is set)."""
         if not self.subscriber_id:
             return None
@@ -229,7 +232,7 @@ class SubscriptionListener:
             row = cur.fetchone()
             return row[0] if row else None
 
-    def _save_checkpoint(self):
+    def _save_checkpoint(self) -> None:
         """Persist the current checkpoint to DB (if subscriber_id is set)."""
         if not self.subscriber_id or self._last_tx_time is None:
             return
@@ -269,13 +272,13 @@ class EventListener:
             listener.on("Order", handle)
     """
 
-    def __init__(self, subscriber_id=None) -> None:
+    def __init__(self, subscriber_id: str | None = None) -> None:
         self._bus = EventBus()
         self._subscriber_id = subscriber_id
         self._listener = None   # lazy SubscriptionListener
         self._started = False
 
-    def _ensure_listener(self):
+    def _ensure_listener(self) -> None:
         """Lazy-start the PG LISTEN thread if subscriber_id is set."""
         if self._started or self._subscriber_id is None:
             return
@@ -292,44 +295,44 @@ class EventListener:
 
     # ── Subscribe ─────────────────────────────────────────────────────
 
-    def on(self, type_name, callback):
+    def on(self, type_name: str, callback: Callable) -> None:
         """Subscribe to all changes for a given type_name."""
         self._bus.on(type_name, callback)
         self._ensure_listener()
 
-    def on_entity(self, entity_id, callback):
+    def on_entity(self, entity_id: str, callback: Callable) -> None:
         """Subscribe to changes for a specific entity."""
         self._bus.on_entity(entity_id, callback)
         self._ensure_listener()
 
-    def on_all(self, callback):
+    def on_all(self, callback: Callable) -> None:
         """Subscribe to all changes regardless of type or entity."""
         self._bus.on_all(callback)
         self._ensure_listener()
 
     # ── Unsubscribe ───────────────────────────────────────────────────
 
-    def off(self, type_name, callback):
+    def off(self, type_name: str, callback: Callable) -> None:
         """Unsubscribe a type listener."""
         self._bus.off(type_name, callback)
 
-    def off_entity(self, entity_id, callback):
+    def off_entity(self, entity_id: str, callback: Callable) -> None:
         """Unsubscribe an entity listener."""
         self._bus.off_entity(entity_id, callback)
 
-    def off_all(self, callback):
+    def off_all(self, callback: Callable) -> None:
         """Unsubscribe a catch-all listener."""
         self._bus.off_all(callback)
 
     # ── Emit (used internally by StoreClient) ─────────────────────────
 
-    def emit(self, event: ChangeEvent):
+    def emit(self, event: ChangeEvent) -> None:
         """Dispatch a ChangeEvent to all matching listeners."""
         self._bus.emit(event)
 
     # ── Lifecycle ─────────────────────────────────────────────────────
 
-    def _stop(self):
+    def _stop(self) -> None:
         """Stop the PG listener thread (if running)."""
         if self._listener is not None:
             self._listener.stop()
@@ -339,7 +342,7 @@ class EventListener:
     def __enter__(self) -> "SubscriptionManager":
         return self
 
-    def __exit__(self, *args: object) -> None:
+    def __exit__(self, *args: Any) -> None:
         self._stop()
 
     def __del__(self) -> None:

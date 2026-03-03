@@ -26,9 +26,14 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-from typing import get_type_hints
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, get_type_hints
 
 from ai._types import Tool
+
+if TYPE_CHECKING:
+    from lakehouse.query import Lakehouse
+    from media.store import MediaStore
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +48,7 @@ _PY_TO_JSON_TYPE = {
 }
 
 
-def _param_schema(py_type) -> dict:
+def _param_schema(py_type: type) -> dict:
     """Convert a Python type hint to a JSON Schema fragment."""
     origin = getattr(py_type, "__origin__", None)
     if origin is list:
@@ -55,7 +60,7 @@ def _param_schema(py_type) -> dict:
     return {"type": _PY_TO_JSON_TYPE.get(py_type, "string")}
 
 
-def _schema_from_function(fn) -> dict:
+def _schema_from_function(fn: Callable[..., Any]) -> dict:
     """Build a JSON Schema parameters dict from a function's type hints and docstring."""
     hints = get_type_hints(fn)
     sig = inspect.signature(fn)
@@ -113,7 +118,7 @@ def _parse_param_docs(docstring: str) -> dict[str, str]:
     return result
 
 
-def tool(fn):
+def tool(fn: Callable[..., Any]) -> Callable[..., Any]:
     """
     Decorator that converts a typed Python function into a Tool.
 
@@ -193,7 +198,7 @@ class ToolRegistry:
         logger.info("Executing tool %s with args: %s", name, arguments)
         return tool.fn(**arguments)
 
-    def register_decorated(self, *fns) -> None:
+    def register_decorated(self, *fns: Callable[..., Any] | Tool) -> None:
         """Batch-register functions decorated with @tool."""
         for fn in fns:
             if hasattr(fn, '_tool'):
@@ -212,8 +217,8 @@ class ToolRegistry:
     @classmethod
     def from_platform(
         cls,
-        media_store=None,
-        lakehouse=None,
+        media_store: MediaStore | None = None,
+        lakehouse: Lakehouse | None = None,
     ) -> ToolRegistry:
         """Create a ToolRegistry with built-in platform tools.
 
@@ -237,7 +242,7 @@ class ToolRegistry:
 # ── Built-in platform tools ──────────────────────────────────────────────
 
 
-def create_search_tools(media_store) -> list[Tool]:
+def create_search_tools(media_store: MediaStore) -> list[Tool]:
     """
     Create search tools that operate on a MediaStore.
 
@@ -372,7 +377,7 @@ def create_search_tools(media_store) -> list[Tool]:
     return tools
 
 
-def create_lakehouse_tools(lakehouse) -> list[Tool]:
+def create_lakehouse_tools(lakehouse: Lakehouse) -> list[Tool]:
     """
     Create tools that operate on a Lakehouse.
 

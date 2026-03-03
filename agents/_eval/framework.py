@@ -35,7 +35,11 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ai.agent import AgentResult
+    from ai.client import AI
 
 logger = logging.getLogger(__name__)
 
@@ -329,7 +333,7 @@ class AgentEval:
         agents: dict,
         dimensions: list[EvalDimension] | None = None,
         max_phase: EvalPhase = EvalPhase.TOOL_SELECTION,
-        judge=None,
+        judge: AI | None = None,
     ) -> None:
         self._agents = agents
         self._dimensions = dimensions or DEFAULT_DIMENSIONS
@@ -426,7 +430,7 @@ class AgentEval:
         result.passed = result.composite_score >= 0.7 and not result.error
         return result
 
-    def _collect_artifacts(self, agent_result) -> dict:
+    def _collect_artifacts(self, agent_result: AgentResult) -> dict:
         """Extract structured artifacts from agent tool call results.
 
         Parses JSON observations from tool calls to find schemas,

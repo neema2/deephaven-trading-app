@@ -20,6 +20,7 @@ import asyncio
 import logging
 import subprocess
 import sys
+from typing import Any
 
 import httpx
 
@@ -112,7 +113,7 @@ class MarketDataServer:
     def url(self) -> str:
         return f"http://localhost:{self._port}"
 
-    def register_alias(self, name: str):
+    def register_alias(self, name: str) -> None:
         """Register this server under an alias name."""
         _register_alias(name, url=self.url, port=self._port)
 
@@ -120,7 +121,7 @@ class MarketDataServer:
         await self.start()
         return self
 
-    async def __aexit__(self, *args: object) -> None:
+    async def __aexit__(self, *args: Any) -> None:
         await self.stop()
 
 

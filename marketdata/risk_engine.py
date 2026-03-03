@@ -6,11 +6,11 @@ Used by the market data simulator to compute per-position risk.
 import math
 
 
-def _norm_cdf(x):
+def _norm_cdf(x: float) -> float:
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
 
-def calculate_greeks(price, strike=None, T=0.25, r=0.05, sigma=0.25):
+def calculate_greeks(price: float, strike: float | None = None, T: float = 0.25, r: float = 0.05, sigma: float = 0.25) -> tuple[float, float, float, float]:
     """Return (delta, gamma, theta, vega) for a European call option."""
     S = price
     K = strike or price * 1.05

@@ -136,7 +136,7 @@ class WorkflowEngine(ABC):
 
     # ── Convenience ──────────────────────────────────────────────────
 
-    def durable_transition(self, obj, new_state, **kwargs) -> Any:
+    def durable_transition(self, obj: Any, new_state: str, **kwargs: Any) -> Any:
         """Execute a state transition as a checkpointed workflow step.
 
         Wraps ``obj.transition()`` in ``self.step()`` so the transition

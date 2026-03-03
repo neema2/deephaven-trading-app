@@ -23,15 +23,20 @@ multiple Tasks. A lone function becomes a Schedule with one Task.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from scheduler.models import Schedule, Task
+
+if TYPE_CHECKING:
+    from scheduler.client import SchedulerClient
 
 # Pending tasks grouped by schedule name — collected at import time
 _pending_tasks: list[dict] = []
 
 
 def schedule(cron_expr: str, name: str | None = None,
-             depends_on: list[str] | None = None, **kwargs):
+             depends_on: list[str] | None = None, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator factory: register a function as a scheduled task.
 
     Args:
@@ -44,7 +49,7 @@ def schedule(cron_expr: str, name: str | None = None,
     The decorator auto-derives Task.fn as 'module:qualname' from the
     decorated function, making it importlib-resolvable.
     """
-    def decorator(fn):
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         sched_name = name or fn.__name__
         task_name = fn.__name__
         task_fn = f"{fn.__module__}:{fn.__qualname__}"
@@ -60,7 +65,7 @@ def schedule(cron_expr: str, name: str | None = None,
     return decorator
 
 
-def collect_schedules(scheduler) -> int:
+def collect_schedules(scheduler: SchedulerClient) -> int:
     """Flush all @schedule-decorated functions to PG via a Scheduler client.
 
     Groups tasks by schedule name — multiple tasks with the same name

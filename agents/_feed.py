@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 from ai import Agent, tool
 
@@ -198,7 +199,7 @@ def create_feed_tools(ctx: _PlatformContext) -> list:
             publish_custom_tick, describe_feed_setup]
 
 
-def create_feed_agent(ctx: _PlatformContext, **kwargs) -> Agent:
+def create_feed_agent(ctx: _PlatformContext, **kwargs: Any) -> Agent:
     """Create a Feed Agent bound to a _PlatformContext."""
     tools = create_feed_tools(ctx)
     return Agent(

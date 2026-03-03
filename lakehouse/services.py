@@ -17,8 +17,12 @@ import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
+
+if TYPE_CHECKING:
+    from objectstore import ObjectStore
 
 logger = logging.getLogger(__name__)
 
@@ -266,7 +270,7 @@ class LakehouseStack:
         self,
         pg: EmbeddedPGManager,
         lakekeeper: LakekeeperManager,
-        s3_store,
+        s3_store: ObjectStore,
     ) -> None:
         self._pg = pg
         self._lakekeeper = lakekeeper

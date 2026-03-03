@@ -21,7 +21,10 @@ from __future__ import annotations
 import dataclasses
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from store.registry import ColumnDef
 
 # ── Constants ──────────────────────────────────────────────────────────
 
@@ -107,7 +110,7 @@ class DatacubeColumnConfig:
     # ── Factory ──────────────────────────────────────────────────
 
     @staticmethod
-    def from_column_def(col_def, field_name: str | None = None) -> DatacubeColumnConfig:
+    def from_column_def(col_def: ColumnDef, field_name: str | None = None) -> DatacubeColumnConfig:
         """Build a column config from a :class:`store.registry.ColumnDef`.
 
         ``field_name`` overrides ``col_def.name`` (e.g. prefixed columns).
@@ -154,7 +157,7 @@ class DatacubeColumnConfig:
 
     # ── Mutation helpers (return new instance) ────────────────────
 
-    def replace(self, **kwargs) -> DatacubeColumnConfig:
+    def replace(self, **kwargs: Any) -> DatacubeColumnConfig:
         """Return a copy with the given fields replaced."""
         return dataclasses.replace(self, **kwargs)
 
@@ -210,7 +213,7 @@ class DatacubeSnapshot:
 
     # ── Convenience helpers ───────────────────────────────────────
 
-    def replace(self, **kwargs) -> DatacubeSnapshot:
+    def replace(self, **kwargs: Any) -> DatacubeSnapshot:
         """Return a copy with the given fields replaced."""
         return dataclasses.replace(self, **kwargs)
 
@@ -221,7 +224,7 @@ class DatacubeSnapshot:
                 return col
         return None
 
-    def set_column(self, name: str, **kwargs) -> DatacubeSnapshot:
+    def set_column(self, name: str, **kwargs: Any) -> DatacubeSnapshot:
         """Return a new snapshot with one column's config updated."""
         new_cols = []
         for col in self.columns:

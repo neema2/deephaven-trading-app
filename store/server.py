@@ -6,6 +6,7 @@ Configures pg_hba.conf for scram-sha-256 authentication.
 
 import os
 import urllib.parse
+from typing import Any
 
 import pgserver
 import psycopg2
@@ -36,13 +37,13 @@ host    all       all            ::1/128        scram-sha-256
 class StoreServer:
     """Manages an embedded PostgreSQL instance with zero-trust RLS config."""
 
-    def __init__(self, data_dir=None, admin_password=None) -> None:
+    def __init__(self, data_dir: str | None = None, admin_password: str | None = None) -> None:
         self.data_dir = os.path.abspath(data_dir or DEFAULT_DATA_DIR)
         self.admin_password = admin_password or ADMIN_PASSWORD
         self._pg = None
         self._superuser = None  # detected from pgserver URI
 
-    def start(self):
+    def start(self) -> "StoreServer":
         """Start the embedded PostgreSQL server and bootstrap if needed."""
         os.makedirs(self.data_dir, exist_ok=True)
         self._pg = pgserver.get_server(self.data_dir)
@@ -54,7 +55,7 @@ class StoreServer:
 
     # ── Internal ─────────────────────────────────────────────────────
 
-    def _ensure_uuid_ossp_shim(self):
+    def _ensure_uuid_ossp_shim(self) -> None:
         """Create a pure-SQL uuid-ossp shim if the extension files are missing.
         pgserver on Linux doesn't bundle the C-based uuid-ossp extension,
         but PG 13+ has gen_random_uuid() built-in. This shim satisfies
@@ -87,17 +88,17 @@ class StoreServer:
                     "AS $$ SELECT gen_random_uuid() $$ LANGUAGE SQL;\n"
                 )
 
-    def _detect_superuser(self):
+    def _detect_superuser(self) -> None:
         """Detect the superuser name from the pgserver URI."""
         uri = self._pg.get_uri()
         parsed = urllib.parse.urlparse(uri)
         self._superuser = parsed.username or os.getenv("USER", "postgres")
 
-    def _superuser_conn(self):
+    def _superuser_conn(self) -> "psycopg2.extensions.connection":
         """Get a superuser connection (local socket, trust auth)."""
         return psycopg2.connect(self._pg.get_uri())
 
-    def _bootstrap(self):
+    def _bootstrap(self) -> None:
         """Create admin role, group role, and schema. Idempotent."""
         conn = self._superuser_conn()
         conn.autocommit = True
@@ -153,7 +154,7 @@ class StoreServer:
         bootstrap_schema(admin_conn)
         admin_conn.close()
 
-    def _harden_auth(self):
+    def _harden_auth(self) -> None:
         """Rewrite pg_hba.conf so all non-superuser connections require
         scram-sha-256 password authentication, then reload."""
         pg_hba_path = os.path.join(self.data_dir, "pg_hba.conf")
@@ -176,7 +177,7 @@ class StoreServer:
 
     # ── Public API ───────────────────────────────────────────────────
 
-    def admin_conn(self):
+    def admin_conn(self) -> "psycopg2.extensions.connection":
         """Get a connection as app_admin (password auth)."""
         info = self.conn_info()
         return psycopg2.connect(
@@ -187,14 +188,14 @@ class StoreServer:
             password=self.admin_password,
         )
 
-    def register_alias(self, name: str):
+    def register_alias(self, name: str) -> None:
         """Register this server's connection params under an alias name."""
         from store.connection import register_alias
         info = self.conn_info()
         register_alias(name, host=info["host"], port=info["port"],
                        dbname=info["dbname"])
 
-    def conn_info(self):
+    def conn_info(self) -> dict[str, str | int]:
         """Return connection parameters for this server."""
         uri = self._pg.get_uri()
         parsed = urllib.parse.urlparse(uri)
@@ -210,7 +211,7 @@ class StoreServer:
             "dbname": dbname,
         }
 
-    def pg_url(self):
+    def pg_url(self) -> str:
         """Return a generic postgres:// connection URL for this server."""
         info = self.conn_info()
         host_encoded = urllib.parse.quote(info["host"], safe="")
@@ -219,14 +220,14 @@ class StoreServer:
             f"localhost:{info['port']}/{info['dbname']}?host={host_encoded}"
         )
 
-    def provision_user(self, username: str, password: str):
+    def provision_user(self, username: str, password: str) -> None:
         """Create a user with RLS access. Idempotent."""
         from store.schema import _provision_user as _provision
         admin_conn = self.admin_conn()
         _provision(admin_conn, username, password)
         admin_conn.close()
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the embedded PostgreSQL server."""
         if self._pg:
             self._pg.cleanup()
@@ -236,6 +237,6 @@ class StoreServer:
         self.start()
         return self
 
-    def __exit__(self, *args: object) -> None:
+    def __exit__(self, *args: Any) -> None:
         self.stop()
 

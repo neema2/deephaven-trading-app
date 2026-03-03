@@ -26,15 +26,22 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from ai._types import Message
+
+if TYPE_CHECKING:
+    import psycopg2.extensions
+
+    from ai.client import AI
+    from store.client import StoreClient
 
 logger = logging.getLogger(__name__)
 
 _TABLE = "agent_conversations"
 
 
-def bootstrap_conversations_table(admin_conn, grant_to: str = "") -> None:
+def bootstrap_conversations_table(admin_conn: psycopg2.extensions.connection, grant_to: str = "") -> None:
     """Create the agent_conversations table using an admin connection.
 
     Args:
@@ -98,7 +105,7 @@ class AgentMemory:
         auto_summarize: Summarize conversations longer than this many messages (0 = disabled).
     """
 
-    def __init__(self, store_conn=None, auto_summarize: int = 20) -> None:
+    def __init__(self, store_conn: StoreClient | None = None, auto_summarize: int = 20) -> None:
         self._conn = store_conn
         self._auto_summarize = auto_summarize
 
@@ -108,7 +115,7 @@ class AgentMemory:
         messages: list[Message],
         agent_name: str = "",
         metadata: dict | None = None,
-        ai=None,
+        ai: AI | None = None,
     ) -> Conversation:
         """
         Save a conversation.
@@ -268,7 +275,7 @@ class AgentMemory:
             except Exception:
                 pass
 
-    def _summarize(self, messages: list[Message], ai) -> str:
+    def _summarize(self, messages: list[Message], ai: AI) -> str:
         """Summarize a conversation using the LLM."""
         try:
             # Build a condensed version of the conversation

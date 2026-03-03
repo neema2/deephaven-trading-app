@@ -23,6 +23,8 @@ from collections.abc import Sequence
 from itertools import product
 from typing import Any
 
+import duckdb
+
 from datacube.config import (
     PIVOT_COLUMN_NAME_SEPARATOR,
     DatacubeColumnConfig,
@@ -44,7 +46,7 @@ def compile(snapshot: DatacubeSnapshot) -> str:
 
 
 def discover_pivot_values(
-    conn,
+    conn: duckdb.DuckDBPyConnection,
     snapshot: DatacubeSnapshot,
 ) -> list[str]:
     """Run ``SELECT DISTINCT`` to discover HPivot column values.

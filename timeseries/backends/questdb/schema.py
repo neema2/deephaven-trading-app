@@ -7,6 +7,10 @@ DDL for tick tables. Executed via PGWire (psycopg2) on startup.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import psycopg2.extensions
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +60,7 @@ PARTITION BY DAY;
 ALL_DDL = [EQUITY_TICKS_DDL, FX_TICKS_DDL, CURVE_TICKS_DDL]
 
 
-def create_tables(conn, ttl_days: int = 90) -> None:
+def create_tables(conn: psycopg2.extensions.connection, ttl_days: int = 90) -> None:
     """Execute table DDL on a psycopg2 connection.
 
     Args:

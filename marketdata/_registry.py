@@ -5,12 +5,13 @@ Market data alias registry — maps alias names to server URLs.
 from __future__ import annotations
 
 import threading
+from typing import Any
 
 _aliases: dict[str, dict] = {}   # name → {"url": ..., "port": ...}
 _lock = threading.Lock()
 
 
-def register_alias(name: str, **kwargs):
+def register_alias(name: str, **kwargs: Any) -> None:
     """Register a market data server alias."""
     with _lock:
         _aliases[name] = kwargs
