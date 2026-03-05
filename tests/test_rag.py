@@ -70,16 +70,16 @@ def media_store(s3_server, store_conn):
     if not GEMINI_API_KEY:
         pytest.skip("GEMINI_API_KEY not set")
 
-    from ai._embeddings import GeminiEmbeddings
+    from ai import AI
     from media import MediaStore
 
-    embedder = GeminiEmbeddings(api_key=GEMINI_API_KEY, dimension=768)
+    ai_client = AI(api_key=GEMINI_API_KEY, embedding_dim=768)
     ms = MediaStore(
         s3_endpoint="localhost:9042",
         s3_access_key="minioadmin",
         s3_secret_key="minioadmin",
         s3_bucket="test-rag",
-        embedding_provider=embedder,
+        ai=ai_client,
     )
 
     # Upload documents with real content

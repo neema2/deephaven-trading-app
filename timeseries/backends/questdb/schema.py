@@ -10,7 +10,7 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from store._types import Connection
+    from db import Connection
 
 logger = logging.getLogger(__name__)
 

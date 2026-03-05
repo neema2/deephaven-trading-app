@@ -88,16 +88,16 @@ def media_store_with_embed(s3_server, store_conn):
     if not GEMINI_API_KEY:
         pytest.skip("GEMINI_API_KEY not set")
 
-    from ai._embeddings import GeminiEmbeddings
+    from ai import AI
     from media import MediaStore
 
-    embedder = GeminiEmbeddings(api_key=GEMINI_API_KEY, dimension=768)
+    ai = AI(api_key=GEMINI_API_KEY, embedding_dim=768)
     ms = MediaStore(
         s3_endpoint="localhost:9022",
         s3_access_key="minioadmin",
         s3_secret_key="minioadmin",
         s3_bucket="test-embed",
-        embedding_provider=embedder,
+        ai=ai,
     )
     yield ms
     ms.close()
@@ -315,7 +315,7 @@ class TestSemanticSearch:
     def test_semantic_search_no_embedder_raises(self, media_store_no_embed):
         """semantic_search without embedding provider raises ValueError."""
         import pytest
-        with pytest.raises(ValueError, match="embedding_provider"):
+        with pytest.raises(ValueError, match="AI instance"):
             media_store_no_embed.semantic_search("test query")
 
 
@@ -363,5 +363,5 @@ class TestHybridSearch:
 
     def test_hybrid_no_embedder_raises(self, media_store_no_embed):
         """hybrid_search without embedding provider raises ValueError."""
-        with pytest.raises(ValueError, match="embedding_provider"):
+        with pytest.raises(ValueError, match="AI instance"):
             media_store_no_embed.hybrid_search("test query")

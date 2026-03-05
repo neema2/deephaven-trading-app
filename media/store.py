@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Any
 from objectstore import S3Client
 
 if TYPE_CHECKING:
-    from ai._embeddings import EmbeddingProvider
     from ai.client import AI
 
 from media.chunking import chunk_text
@@ -67,7 +66,6 @@ class MediaStore:
         alias_or_endpoint: str | None = None,
         *,
         ai: AI | None = None,
-        embedding_provider: EmbeddingProvider | None = None,
         data_dir: str | None = None,
         # Private — backward compat / tests
         _s3_endpoint: str | None = None,
@@ -102,12 +100,7 @@ class MediaStore:
         )
         self._s3.ensure_bucket()
         self._bucket = bucket
-        # ai= is the public API; embedding_provider= is internal/backward-compat
-        self._embedder: EmbeddingProvider | None
-        if ai is not None:
-            self._embedder = ai.embedder
-        else:
-            self._embedder = embedding_provider
+        self._embedder = ai.embedder if ai is not None else None
 
     def _resolve_connection(self, alias_or_endpoint: str | None, data_dir: str | None,
                             s3_endpoint: str | None, s3_access_key: str | None,
@@ -329,8 +322,8 @@ class MediaStore:
         """
         if not self._embedder:
             raise ValueError(
-                "semantic_search requires an embedding_provider. "
-                "Pass embedding_provider= to MediaStore constructor."
+                "semantic_search requires an AI instance with embeddings. "
+                "Pass ai= to MediaStore constructor."
             )
 
         query_embedding = self._embedder.embed_query(query)
@@ -370,8 +363,8 @@ class MediaStore:
         """
         if not self._embedder:
             raise ValueError(
-                "hybrid_search requires an embedding_provider. "
-                "Pass embedding_provider= to MediaStore constructor."
+                "hybrid_search requires an AI instance with embeddings. "
+                "Pass ai= to MediaStore constructor."
             )
 
         query_embedding = self._embedder.embed_query(query)

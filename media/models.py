@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 from store.base import Storable
 
 if TYPE_CHECKING:
-    from store._types import Connection
+    from db import Connection
 
 logger = logging.getLogger(__name__)
 

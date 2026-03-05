@@ -20,7 +20,7 @@ from pyiceberg.catalog import Catalog
 from lakehouse.models import SyncState
 
 if TYPE_CHECKING:
-    from store._types import Connection
+    from db import Connection
     from timeseries.base import TSDBBackend
 
 logger = logging.getLogger(__name__)

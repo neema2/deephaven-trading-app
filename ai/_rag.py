@@ -11,7 +11,7 @@ Usage::
 
     llm = GeminiLLM(api_key="...")
     embedder = GeminiEmbeddings(api_key="...")
-    ms = MediaStore(..., embedding_provider=embedder)
+    ms = MediaStore(..., ai=ai_instance)
 
     rag = RAGPipeline(llm=llm, media_store=ms)
     result = rag.ask("What are credit default swaps?")
@@ -56,7 +56,7 @@ class RAGPipeline:
 
     Args:
         llm: An LLMClient instance for generation.
-        media_store: A MediaStore instance with embedding_provider for retrieval.
+        media_store: A MediaStore instance with ai= for retrieval.
         search_mode: Search strategy — "hybrid", "semantic", or "text" (default: "hybrid").
     """
 

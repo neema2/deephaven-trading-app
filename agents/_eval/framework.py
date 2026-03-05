@@ -468,7 +468,7 @@ class AgentEval:
         """Use LLM-as-judge to score based on a rubric."""
         assert self._judge is not None
         try:
-            from ai._types import Message
+            from ai import Message
             response = self._judge.generate(
                 [
                     Message(role="system", content=(

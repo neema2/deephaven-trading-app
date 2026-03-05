@@ -97,7 +97,7 @@ packages = ["store", "reactive", "bridge", "workflow", "marketdata", "timeseries
 [tool.ruff]
 target-version = "py310"
 line-length = 120
-src = ["store", "reactive", "bridge", "workflow", "marketdata", "timeseries", "lakehouse", "media", "ai", "streaming", "datacube", "scheduler", "agents", "objectstore", "models"]
+src = ["db", "store", "reactive", "bridge", "workflow", "marketdata", "timeseries", "lakehouse", "media", "ai", "streaming", "datacube", "scheduler", "agents", "objectstore", "models"]
 
 [tool.ruff.lint]
 select = [

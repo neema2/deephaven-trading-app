@@ -247,7 +247,7 @@ def create_search_tools(media_store: MediaStore) -> list[Tool]:
     Create search tools that operate on a MediaStore.
 
     Args:
-        media_store: A MediaStore instance (with or without embedding_provider).
+        media_store: A MediaStore instance (with or without ai=).
 
     Returns:
         List of Tool instances for document search.

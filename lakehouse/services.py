@@ -109,7 +109,7 @@ class EmbeddedPGManager:
         if pid_file.exists():
             # Try to connect
             try:
-                from store._types import connect as _db_connect
+                from db import connect as _db_connect
                 conn = _db_connect(
                     host="localhost", port=self._port,
                     user=self._user, dbname="postgres",
@@ -147,7 +147,7 @@ class EmbeddedPGManager:
             )
 
         # Wait for ready
-        from store._types import connect as _db_connect
+        from db import connect as _db_connect
         for _ in range(10):
             try:
                 conn = _db_connect(

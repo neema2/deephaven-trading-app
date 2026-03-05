@@ -464,7 +464,7 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
             return json.dumps({"error": "No AI configured."})  # type: ignore[unreachable]
 
         try:
-            from ai._types import Message
+            from ai import Message
             prompt = f"""\
 Given this data and question, recommend the best visualization.
 

@@ -158,7 +158,7 @@ Return a JSON object with:
 Only return valid JSON."""
 
         try:
-            from ai._types import Message
+            from ai import Message
             response = ctx.ai.generate(
                 [Message(role="user", content=prompt)],
                 temperature=0.3,
