@@ -238,8 +238,8 @@ class TestOLTPCodegen:
 
         # Type in context, instantiable
         cls = ctx.get_storable_type("CGTrade")
-        assert issubclass(cls, Storable)
-        obj = cls()
+        assert issubclass(cls, Storable)  # type: ignore[arg-type]
+        obj = cls()  # type: ignore[misc]
         assert obj.cg_symbol == ""
         assert obj.cg_price == 0.0
 

@@ -229,9 +229,9 @@ class TestEnsureTz:
 
     def test_ensure_tz_cases(self):
         assert _ensure_tz(None) is None
-        assert _ensure_tz("not a datetime") is None
+        assert _ensure_tz("not a datetime") is None  # type: ignore[arg-type]
         naive = datetime(2025, 1, 1, 12, 0, 0)
-        assert _ensure_tz(naive).tzinfo == timezone.utc
+        assert _ensure_tz(naive).tzinfo == timezone.utc  # type: ignore[union-attr]
         aware = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         assert _ensure_tz(aware) is aware
 

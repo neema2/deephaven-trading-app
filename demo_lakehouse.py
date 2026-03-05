@@ -197,9 +197,9 @@ async def run_demo(args):
     # ── Step 3: Sync to Iceberg ────────────────────────────────────────
     print("Step 4: Syncing to Iceberg...")
     catalog = create_catalog(uri=stack.catalog_url, s3_endpoint=stack.s3_endpoint)
-    ensure_tables(catalog)
+    ensure_tables(catalog)  # type: ignore[arg-type]
 
-    sync = SyncEngine(catalog=catalog, state_path="data/demo_lakehouse_sync.json")
+    sync = SyncEngine(catalog=catalog, state_path="data/demo_lakehouse_sync.json")  # type: ignore[arg-type]
     pg_conn = server.admin_conn()
     events_synced = sync.sync_events(pg_conn)
     ticks_synced = sync.sync_ticks(backend)

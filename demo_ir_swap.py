@@ -115,7 +115,7 @@ class YieldCurvePoint(Storable):
         fx_base = self.fx_base_mid
         if fx_base == 0.0:
             return self.base_rate
-        pct_move = (self.fx_ref.mid - fx_base) / fx_base
+        pct_move = (self.fx_ref.mid - fx_base) / fx_base  # type: ignore[attr-defined]
         return max(0.0001, self.base_rate + self.sensitivity * pct_move)
 
     @computed
@@ -153,7 +153,7 @@ class InterestRateSwap(Storable):
     def float_rate(self):
         if self.curve_ref is None:
             return 0.0
-        return self.curve_ref.rate
+        return self.curve_ref.rate  # type: ignore[attr-defined]
 
     @computed
     def fixed_leg_pv(self):

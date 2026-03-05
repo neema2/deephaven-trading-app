@@ -445,7 +445,7 @@ class AgentEval:
                 if isinstance(obs, str):
                     data = __import__("json").loads(obs)
                 else:
-                    data = obs
+                    data = obs  # type: ignore[unreachable]
 
                 # Track created schemas
                 if isinstance(data, dict):

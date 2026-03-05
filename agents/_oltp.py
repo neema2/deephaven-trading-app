@@ -148,7 +148,7 @@ def create_oltp_tools(ctx: _PlatformContext) -> list:
         for name in types:
             cls = ctx.get_storable_type(name)
             if cls and dataclasses.is_dataclass(cls):
-                fields = [
+                fields = [  # type: ignore[unreachable]
                     {"name": f.name, "type": f.type.__name__ if isinstance(f.type, type) else str(f.type)}
                     for f in dataclasses.fields(cls)
                     if not f.name.startswith("_")

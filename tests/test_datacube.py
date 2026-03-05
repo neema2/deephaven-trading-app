@@ -37,7 +37,7 @@ class TestConfigModels:
     def test_column_config_frozen_and_replace(self):
         col = DatacubeColumnConfig(name="x", type="str")
         with pytest.raises(AttributeError):
-            col.name = "y"  # type: ignore[assignment]
+            col.name = "y"  # type: ignore[assignment, misc]
         col2 = DatacubeColumnConfig(name="price", type="float", kind="measure", aggregate_operator="sum")
         col3 = col2.replace(aggregate_operator="avg")
         assert col2.aggregate_operator == "sum" and col3.aggregate_operator == "avg"
@@ -79,7 +79,7 @@ class TestDatacubeSnapshot:
         )
         snap = DatacubeSnapshot(source="t", columns=cols)
         assert snap.get_column("a") is not None
-        assert snap.get_column("a").name == "a"
+        assert snap.get_column("a").name == "a"  # type: ignore[union-attr]
         assert snap.get_column("z") is None
 
     def test_set_column(self):
@@ -89,8 +89,8 @@ class TestDatacubeSnapshot:
         )
         snap = DatacubeSnapshot(source="t", columns=cols)
         snap2 = snap.set_column("b", aggregate_operator="avg")
-        assert snap.get_column("b").aggregate_operator == "sum"
-        assert snap2.get_column("b").aggregate_operator == "avg"
+        assert snap.get_column("b").aggregate_operator == "sum"  # type: ignore[union-attr]
+        assert snap2.get_column("b").aggregate_operator == "avg"  # type: ignore[union-attr]
 
     def test_selected_columns(self):
         cols = (
@@ -737,16 +737,16 @@ class TestLeafExtendWithAggregation:
         dc = Datacube(trades_conn, source_name="trades")
         dc = dc.add_leaf_extend("notional", "price * quantity")
         col = dc.snapshot.get_column("notional")
-        assert col.kind == "measure"
-        assert col.aggregate_operator == "sum"
-        assert col.type == "float"
+        assert col.kind == "measure"  # type: ignore[union-attr]
+        assert col.aggregate_operator == "sum"  # type: ignore[union-attr]
+        assert col.type == "float"  # type: ignore[union-attr]
 
     def test_leaf_extend_set_column_avg(self, trades_conn):
         dc = Datacube(trades_conn, source_name="trades")
         dc = dc.add_leaf_extend("notional", "price * quantity")
         dc = dc.set_column("notional", aggregate_operator="avg")
         col = dc.snapshot.get_column("notional")
-        assert col.aggregate_operator == "avg"
+        assert col.aggregate_operator == "avg"  # type: ignore[union-attr]
 
     def test_leaf_extend_group_by(self, trades_conn):
         dc = Datacube(trades_conn, source_name="trades")
@@ -785,8 +785,8 @@ class TestLeafExtendWithAggregation:
         dc = Datacube(trades_conn, source_name="trades")
         dc = dc.add_leaf_extend("label", "sector || '-' || symbol", type="str")
         col = dc.snapshot.get_column("label")
-        assert col.kind == "dimension"
-        assert col.aggregate_operator == ""
+        assert col.kind == "dimension"  # type: ignore[union-attr]
+        assert col.aggregate_operator == ""  # type: ignore[union-attr]
 
 
 class TestSerializationIntegration:

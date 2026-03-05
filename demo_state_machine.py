@@ -167,9 +167,9 @@ def main():
         ]
 
     order2 = Order(symbol="MSFT", quantity=50, price=415.00, side="SELL")
-    order2._state_machine = FailLifecycle
+    order2._state_machine = FailLifecycle  # type: ignore[misc]
     order2.save()
-    print(f"Created order {order2._store_entity_id[:8]}… symbol=MSFT")
+    print(f"Created order {order2._store_entity_id[:8]}… symbol=MSFT")  # type: ignore[index]
     print(f"State before: {order2._store_state}")
 
     try:
@@ -177,8 +177,8 @@ def main():
     except ValueError as e:
         print(f"  Action raised: {e}")
 
-    fresh = Order.find(order2._store_entity_id)
-    print(f"State after:  {fresh._store_state}  ← rolled back!")
+    fresh = Order.find(order2._store_entity_id)  # type: ignore[arg-type]
+    print(f"State after:  {fresh._store_state}  ← rolled back!")  # type: ignore[union-attr]
 
     # ── Demo 3: Tier 2 failure is swallowed ──────────────────────────
     print("\n── Demo 3: Tier 2 Swallowed (hook failure) ─────────────────")
@@ -194,9 +194,9 @@ def main():
         ]
 
     order3 = Order(symbol="GOOG", quantity=25, price=175.00, side="BUY")
-    order3._state_machine = FragileLifecycle
+    order3._state_machine = FragileLifecycle  # type: ignore[misc]
     order3.save()
-    print(f"Created order {order3._store_entity_id[:8]}… symbol=GOOG")
+    print(f"Created order {order3._store_entity_id[:8]}… symbol=GOOG")  # type: ignore[index]
     print(f"State before: {order3._store_state}")
 
     order3.transition("BETA")

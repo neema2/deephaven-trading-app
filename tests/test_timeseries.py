@@ -63,7 +63,7 @@ class _CompleteBackend(TSDBBackend):
 def test_abc_cannot_instantiate_incomplete():
     """TSDBBackend subclass without all abstract methods cannot be instantiated."""
     with pytest.raises(TypeError):
-        _IncompleteBackend()
+        _IncompleteBackend()  # type: ignore[abstract]
 
 
 def test_abc_can_instantiate_complete():

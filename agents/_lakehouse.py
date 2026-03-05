@@ -116,7 +116,7 @@ def create_lakehouse_tools(ctx: _PlatformContext) -> list:
             source_fields_json: Optional JSON array of source field names and types for more precise design.
         """
         if ctx.ai is None:
-            return json.dumps({"error": "No AI configured in _PlatformContext"})
+            return json.dumps({"error": "No AI configured in _PlatformContext"})  # type: ignore[unreachable]
 
         fields_context = ""
         if source_fields_json:

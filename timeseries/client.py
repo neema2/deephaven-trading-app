@@ -65,7 +65,7 @@ class Timeseries:
             await self._backend.stop()
             self._backend = None
         if self._auto_server:
-            await self._auto_server.stop()
+            await self._auto_server.stop()  # type: ignore[unreachable]
             self._auto_server = None
 
     def _create_backend(self) -> TSDBBackend:

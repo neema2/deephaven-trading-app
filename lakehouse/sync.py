@@ -384,4 +384,4 @@ def _ensure_tz(dt: datetime | None) -> datetime | None:
         if dt.tzinfo is None:
             return dt.replace(tzinfo=timezone.utc)
         return dt
-    return None
+    return None  # type: ignore[unreachable]

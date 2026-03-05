@@ -299,7 +299,7 @@ class TestInitSubclass:
             symbol: str = ""
             price: float = 0.0
             quantity: int = 0
-        assert TestTrade in Storable._registry.entities()
+        assert TestTrade in Storable._registry.entities()  # type: ignore[union-attr]
 
     def test_bad_storable_subclass_rejected(self):
         """Storable subclass with unregistered field should fail."""
@@ -377,9 +377,9 @@ class TestInstanceValidation:
     def test_non_nullable_rejects_none(self, trading_reg):
         @dataclass
         class Trade:
-            symbol: str = None
+            symbol: str = None  # type: ignore[assignment]
         trading_reg.validate_class(Trade)
-        errors = trading_reg.validate_instance(Trade(symbol=None))
+        errors = trading_reg.validate_instance(Trade(symbol=None))  # type: ignore[arg-type]
         assert any("not nullable" in e for e in errors)
 
     def test_multiple_violations(self, trading_reg):

@@ -98,13 +98,13 @@ class TestWorkflowEngineABC:
 
     def test_abc_not_instantiable(self):
         with pytest.raises(TypeError):
-            WorkflowEngine()
+            WorkflowEngine()  # type: ignore[abstract]
 
     def test_handle_dataclass(self):
         class DummyEngine(WorkflowEngine):
             def workflow(self, fn, *a, **kw): ...
             def step(self, fn, *a, **kw): ...
-            def queue(self, name, fn, *a, **kw): ...
+            def queue(self, name, fn, *a, **kw): ...  # type: ignore[override]
             def sleep(self, s): ...
             def send(self, wid, topic, val): ...
             def recv(self, topic, timeout=None): ...
@@ -147,8 +147,8 @@ class TestWorkflowsAndSteps:
             return x * 2
 
         def my_workflow(val):
-            a = _engine.step(add_one, val)
-            b = _engine.step(double, a)
+            a = _engine.step(add_one, val)  # type: ignore[union-attr]
+            b = _engine.step(double, a)  # type: ignore[union-attr]
             return b
 
         result = engine.run(my_workflow, 5)
@@ -180,8 +180,8 @@ class TestWorkflowsAndSteps:
             return f"{greeting} world"
 
         def pipeline():
-            a = _engine.step(step_a)
-            b = _engine.step(step_b, a)
+            a = _engine.step(step_a)  # type: ignore[union-attr]
+            b = _engine.step(step_b, a)  # type: ignore[union-attr]
             return b
 
         result = engine.run(pipeline)
@@ -189,8 +189,8 @@ class TestWorkflowsAndSteps:
 
     def test_workflow_with_dict_result(self, engine):
         def build_report():
-            count = _engine.step(lambda: 42)
-            label = _engine.step(lambda: "items")
+            count = _engine.step(lambda: 42)  # type: ignore[union-attr]
+            label = _engine.step(lambda: "items")  # type: ignore[union-attr]
             return {"count": count, "label": label}
 
         result = engine.run(build_report)
@@ -204,9 +204,9 @@ class TestWorkflowsAndSteps:
             return val
 
         def ordered_workflow():
-            _engine.step(append_step, "first")
-            _engine.step(append_step, "second")
-            _engine.step(append_step, "third")
+            _engine.step(append_step, "first")  # type: ignore[union-attr]
+            _engine.step(append_step, "second")  # type: ignore[union-attr]
+            _engine.step(append_step, "third")  # type: ignore[union-attr]
             return log.copy()
 
         result = engine.run(ordered_workflow)
@@ -245,7 +245,7 @@ class TestSendRecv:
 
     def test_send_recv(self, engine):
         def waiter_workflow():
-            msg = _engine.recv("test-topic", timeout=10)
+            msg = _engine.recv("test-topic", timeout=10)  # type: ignore[union-attr]
             return msg
 
         handle = engine.workflow(waiter_workflow)
@@ -258,7 +258,7 @@ class TestSendRecv:
 
     def test_recv_timeout_returns_none(self, engine):
         def timeout_workflow():
-            return _engine.recv("no-one-sends", timeout=1)
+            return _engine.recv("no-one-sends", timeout=1)  # type: ignore[union-attr]
 
         handle = engine.workflow(timeout_workflow)
         result = handle.get_result(timeout=5)
@@ -275,19 +275,19 @@ class TestStoreIntegration:
     def test_multi_step_store_workflow(self, engine, client):
         def create_counter(name, initial):
             c = Counter(name=name, value=initial)
-            _client.write(c)
+            _client.write(c)  # type: ignore[union-attr]
             return c._store_entity_id
 
         def increment_counter(entity_id, amount):
-            c = _client.read(Counter, entity_id)
-            c.value += amount
-            _client.update(c)
-            return c.value
+            c = _client.read(Counter, entity_id)  # type: ignore[union-attr]
+            c.value += amount  # type: ignore[union-attr]
+            _client.update(c)  # type: ignore[arg-type, union-attr]
+            return c.value  # type: ignore[union-attr]
 
         def create_and_increment():
-            eid = _engine.step(create_counter, "hits", 0)
-            _v1 = _engine.step(increment_counter, eid, 10)
-            v2 = _engine.step(increment_counter, eid, 5)
+            eid = _engine.step(create_counter, "hits", 0)  # type: ignore[union-attr]
+            _v1 = _engine.step(increment_counter, eid, 10)  # type: ignore[union-attr]
+            v2 = _engine.step(increment_counter, eid, 5)  # type: ignore[union-attr]
             return {"entity_id": eid, "final_value": v2}
 
         result = engine.run(create_and_increment)
@@ -301,15 +301,15 @@ class TestStoreIntegration:
     def test_workflow_with_error_in_step(self, engine, client):
         def create_ticket():
             t = Ticket(title="Bug report")
-            _client.write(t)
+            _client.write(t)  # type: ignore[union-attr]
             return t._store_entity_id
 
         def failing_step():
             raise ValueError("intentional failure")
 
         def flawed_workflow():
-            eid = _engine.step(create_ticket)
-            _engine.step(failing_step)  # this will fail
+            eid = _engine.step(create_ticket)  # type: ignore[union-attr]
+            _engine.step(failing_step)  # type: ignore[union-attr]  # this will fail
             return eid
 
         with pytest.raises(Exception):

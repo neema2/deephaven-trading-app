@@ -335,9 +335,9 @@ class TestLakehouseRoundTrip:
         )
         try:
             df = lq.sql_df("SELECT type_name, count(*) as cnt FROM lakehouse.default.events GROUP BY type_name")
-            assert len(df) > 0
-            assert "type_name" in df.columns
-            assert "cnt" in df.columns
+            assert len(df) > 0  # type: ignore[arg-type]
+            assert "type_name" in df.columns  # type: ignore[attr-defined]
+            assert "cnt" in df.columns  # type: ignore[attr-defined]
         finally:
             lq.close()
 

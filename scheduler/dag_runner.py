@@ -151,7 +151,7 @@ class DAGRunner:
             if self._engine is not None:
                 result = self._engine.step(fn)
             else:
-                result = fn()
+                result = fn()  # type: ignore[unreachable]
 
             elapsed = (_time.monotonic() - start) * 1000
             return TaskResult(

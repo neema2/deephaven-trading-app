@@ -73,7 +73,7 @@ class StoreBridge:
     def __init__(self, alias_or_host: str | None = None, port: int | None = None, dbname: str | None = None,
                  user: str | None = None, password: str | None = None, *,
                  host: str | None = None,
-                 subscriber_id: str = "deephaven_bridge") -> None:
+                 subscriber_id: str | None = "deephaven_bridge") -> None:
         # Resolve alias vs explicit params
         if alias_or_host is not None and port is None and host is None:
             # Looks like an alias — try to resolve

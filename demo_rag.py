@@ -251,7 +251,7 @@ def run_demo():
         Trading revenue was $6.4 billion. ROE was 10.4%.
         """
 
-        result = ai.extract(
+        result = ai.extract(  # type: ignore[assignment]
             text=text.strip(),
             schema={
                 "type": "object",
@@ -271,7 +271,7 @@ def run_demo():
 
         print(f"  Input: {text.strip()[:80]}...")
         print("\n  Extracted:")
-        for k, v in result.data.items():
+        for k, v in result.data.items():  # type: ignore[attr-defined]
             print(f"    {k:30s} = {v}")
 
         # ── 5. Direct generation + streaming ──────────────────────────
@@ -310,7 +310,7 @@ def run_demo():
         print(f"  Documents: {len(docs)} uploaded, chunked, and embedded")
         print("  Search:    3 modes (full-text, semantic, hybrid)")
         print(f"  RAG:       {len(questions)} questions answered with citations")
-        print(f"  Extract:   {len(result.data)} fields from earnings report")
+        print(f"  Extract:   {len(result.data)} fields from earnings report")  # type: ignore[attr-defined]
         print(f"  Tools:     {len(tools)} search tools available to LLM")
         print("\n  All through: from ai import AI")
 

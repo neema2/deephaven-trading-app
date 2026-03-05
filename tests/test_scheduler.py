@@ -306,7 +306,7 @@ class TestDAGRunner:
             Task(name="b", fn=f"{self.FX}:fn_return_b", depends_on=["a"]),
         ])
 
-        runner = DAGRunner(engine=None, client=None)
+        runner = DAGRunner(engine=None, client=None)  # type: ignore[arg-type]
         run = runner.run(s)
 
         assert run.task_results["a"].status == "SUCCESS"
@@ -323,7 +323,7 @@ class TestDAGRunner:
             Task(name="c", fn=f"{self.FX}:fn_return_c", depends_on=["a", "b"]),
         ])
 
-        runner = DAGRunner(engine=None, client=None)
+        runner = DAGRunner(engine=None, client=None)  # type: ignore[arg-type]
         run = runner.run(s)
 
         assert run.task_results["a"].status == "SUCCESS"
@@ -340,7 +340,7 @@ class TestDAGRunner:
             Task(name="b", fn=f"{self.FX}:fn_never", depends_on=["a"]),
         ])
 
-        runner = DAGRunner(engine=None, client=None)
+        runner = DAGRunner(engine=None, client=None)  # type: ignore[arg-type]
         run = runner.run(s)
 
         assert run.task_results["a"].status == "ERROR"
@@ -355,7 +355,7 @@ class TestDAGRunner:
             Task(name="a", fn="nonexistent.module:fn"),
         ])
 
-        runner = DAGRunner(engine=None, client=None)
+        runner = DAGRunner(engine=None, client=None)  # type: ignore[arg-type]
         run = runner.run(s)
 
         assert run.task_results["a"].status == "ERROR"
@@ -370,7 +370,7 @@ class TestDAGRunner:
             Task(name="c", fn=f"{self.FX}:fn_return_c"),
         ])
 
-        runner = DAGRunner(engine=None, client=None)
+        runner = DAGRunner(engine=None, client=None)  # type: ignore[arg-type]
         run = runner.run(s)
 
         assert "a" in run.task_results
@@ -385,7 +385,7 @@ class TestDAGRunner:
             Task(name="slow", fn=f"{self.FX}:fn_slow"),
         ])
 
-        runner = DAGRunner(engine=None, client=None)
+        runner = DAGRunner(engine=None, client=None)  # type: ignore[arg-type]
         run = runner.run(s)
 
         assert run.task_results["slow"].duration_ms >= 40  # at least 40ms
@@ -395,7 +395,7 @@ class TestDAGRunner:
         from scheduler.models import Schedule
 
         s = Schedule(name="empty", tasks=[])
-        runner = DAGRunner(engine=None, client=None)
+        runner = DAGRunner(engine=None, client=None)  # type: ignore[arg-type]
         run = runner.run(s)
 
         assert run.result == "empty"
@@ -564,7 +564,7 @@ class TestSchedulerIntegration:
         server = SchedulerServer.__new__(SchedulerServer)
         server._client = client
         server._engine = None
-        server._dag_runner = DAGRunner(None, client)
+        server._dag_runner = DAGRunner(None, client)  # type: ignore[arg-type]
         server._last_fire = {}
         server._running = False
         server._thread = None
@@ -589,7 +589,7 @@ class TestSchedulerIntegration:
         server = SchedulerServer.__new__(SchedulerServer)
         server._client = client
         server._engine = None
-        server._dag_runner = DAGRunner(None, client)
+        server._dag_runner = DAGRunner(None, client)  # type: ignore[arg-type]
         server._last_fire = {}
         server._running = False
         server._thread = None
@@ -615,7 +615,7 @@ class TestSchedulerIntegration:
         server = SchedulerServer.__new__(SchedulerServer)
         server._client = client
         server._engine = None
-        server._dag_runner = DAGRunner(None, client)
+        server._dag_runner = DAGRunner(None, client)  # type: ignore[arg-type]
         server._last_fire = {}
         server._running = False
         server._thread = None

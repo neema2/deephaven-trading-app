@@ -55,7 +55,7 @@ class TestToolDecorator:
             """Search for items."""
             return "[]"
 
-        t = search._tool
+        t = search._tool  # type: ignore[attr-defined]
         assert "query" in t.parameters["required"]
         assert "limit" not in t.parameters.get("required", [])
 
@@ -66,7 +66,7 @@ class TestToolDecorator:
             """Multi-type function."""
             return "{}"
 
-        props = multi._tool.parameters["properties"]
+        props = multi._tool.parameters["properties"]  # type: ignore[attr-defined]
         assert props["name"]["type"] == "string"
         assert props["count"]["type"] == "integer"
         assert props["price"]["type"] == "number"
@@ -79,7 +79,7 @@ class TestToolDecorator:
             """Accept a list."""
             return "[]"
 
-        prop = tags._tool.parameters["properties"]["items"]
+        prop = tags._tool.parameters["properties"]["items"]  # type: ignore[attr-defined]
         assert prop["type"] == "array"
         assert prop["items"]["type"] == "string"
 
@@ -95,7 +95,7 @@ class TestToolDecorator:
             """
             return "{}"
 
-        props = fetch._tool.parameters["properties"]
+        props = fetch._tool.parameters["properties"]  # type: ignore[attr-defined]
         assert props["symbol"]["description"] == "The ticker symbol."
         assert props["exchange"]["description"] == "The exchange name."
 
@@ -105,7 +105,7 @@ class TestToolDecorator:
         def mystery(x: int) -> str:
             return "{}"
 
-        assert mystery._tool.description == "mystery"
+        assert mystery._tool.description == "mystery"  # type: ignore[attr-defined]
 
 
 # ── _parse_param_docs ────────────────────────────────────────────────────
@@ -179,7 +179,7 @@ class TestToolRegistry:
         """register_decorated raises TypeError for invalid input."""
         reg = ToolRegistry()
         with pytest.raises(TypeError):
-            reg.register_decorated(42)
+            reg.register_decorated(42)  # type: ignore[arg-type]
 
     def test_from_platform_empty(self):
         """from_platform with no args returns empty registry."""
@@ -286,7 +286,7 @@ class TestAgentMemory:
         conn = connect(user="agent_user", host=info["host"], port=info["port"],
                        dbname=info["dbname"], password="agent_pw")
 
-        memory = AgentMemory(store_conn=conn)
+        memory = AgentMemory(store_conn=conn)  # type: ignore[arg-type]
         yield memory, conn
         conn.close()
         server.stop()

@@ -514,7 +514,7 @@ def _inline_computed_refs(expr: Expr, frame_locals: dict) -> Expr:
         new_left = _inline_computed_refs(expr.left, frame_locals)
         new_right = _inline_computed_refs(expr.right, frame_locals)
         if new_left is None or new_right is None:
-            return expr  # type: ignore[return-value]
+            return expr  # type: ignore[return-value, unreachable]
         return BinOp(
             expr.op,
             new_left,

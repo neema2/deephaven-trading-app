@@ -151,7 +151,7 @@ def create_document_tools(ctx: _PlatformContext) -> list:
                          "revenue": {"type": "number"}}, "required": ["company"]}
         """
         if ctx.ai is None:
-            return json.dumps({"error": "No AI configured in _PlatformContext"})
+            return json.dumps({"error": "No AI configured in _PlatformContext"})  # type: ignore[unreachable]
 
         try:
             ms = _get_ms()

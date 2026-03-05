@@ -158,51 +158,51 @@ def main():
     )
     result(f"PlatformAgents initialized: {len(team)} agents")
     for name, agent in team:
-        print(f"    • {name}: {len(agent.tools)} tools")
+        print(f"    • {name}: {len(agent.tools)} tools")  # type: ignore[attr-defined]
 
     # ── Exercise Each Agent ──────────────────────────────────────────
 
     # 1. OLTP Agent
     section("1. OLTP Agent — Create & Query Dataset")
     step("Creating trades dataset...")
-    resp = team.oltp.run("Create a dataset called DemoTrade with fields: symbol (str), price (float), quantity (int), side (str)")
+    resp = team.oltp.run("Create a dataset called DemoTrade with fields: symbol (str), price (float), quantity (int), side (str)")  # type: ignore[assignment]
     show_response(resp)
 
     step("Inserting records...")
-    resp = team.oltp.run(
+    resp = team.oltp.run(  # type: ignore[assignment]
         "Insert these trades into DemoTrade: "
         "AAPL at 228.50 qty 100 buy, NVDA at 875.00 qty 50 sell, MSFT at 415.00 qty 200 buy"
     )
     show_response(resp)
 
     step("Querying back...")
-    resp = team.oltp.run("Query all DemoTrade records")
+    resp = team.oltp.run("Query all DemoTrade records")  # type: ignore[assignment]
     show_response(resp)
 
     # 2. Feed Agent
     section("2. Feed Agent — Live Market Data")
     step("Listing symbols...")
-    resp = team.feed.run("What symbols are available on the market data feed?")
+    resp = team.feed.run("What symbols are available on the market data feed?")  # type: ignore[assignment]
     show_response(resp)
 
     step("Checking feed health...")
-    resp = team.feed.run("Is the market data feed healthy?")
+    resp = team.feed.run("Is the market data feed healthy?")  # type: ignore[assignment]
     show_response(resp)
 
     # 3. Timeseries Agent
     section("3. Timeseries Agent — Historical Data")
     step("Getting AAPL bars...")
-    resp = team.timeseries.run("Show me the latest 1-minute OHLCV bars for AAPL")
+    resp = team.timeseries.run("Show me the latest 1-minute OHLCV bars for AAPL")  # type: ignore[assignment]
     show_response(resp)
 
     step("Computing realized vol...")
-    resp = team.timeseries.run("What is the realized volatility for NVDA?")
+    resp = team.timeseries.run("What is the realized volatility for NVDA?")  # type: ignore[assignment]
     show_response(resp)
 
     # 4. Lakehouse Agent
     section("4. Lakehouse Agent — Analytical Tables")
     step("Creating analytical table...")
-    resp = team.lakehouse.run(
+    resp = team.lakehouse.run(  # type: ignore[assignment]
         "Create a lakehouse table called demo_positions from this SQL: "
         "SELECT 'AAPL' as symbol, 228.5 as price, 500 as qty, 'Technology' as sector "
         "UNION ALL SELECT 'NVDA', 875.0, 200, 'Technology' "
@@ -211,20 +211,20 @@ def main():
     show_response(resp)
 
     step("Querying lakehouse...")
-    resp = team.lakehouse.run("What tables are in the lakehouse? Query demo_positions to show all rows.")
+    resp = team.lakehouse.run("What tables are in the lakehouse? Query demo_positions to show all rows.")  # type: ignore[assignment]
     show_response(resp)
 
     # 5. Quant Agent
     section("5. Quant Agent — Analytics & Statistics")
     step("Running statistical analysis...")
-    resp = team.quant.run(
+    resp = team.quant.run(  # type: ignore[assignment]
         "Run descriptive statistics on SELECT * FROM lakehouse.default.demo_positions, "
         "focusing on the price and qty columns"
     )
     show_response(resp)
 
     step("Detecting anomalies...")
-    resp = team.quant.run(
+    resp = team.quant.run(  # type: ignore[assignment]
         "Check for anomalies in the price column of "
         "SELECT * FROM lakehouse.default.demo_positions using zscore method"
     )
@@ -247,21 +247,21 @@ def main():
             Recommendation: Hold with position size cap at 20% of portfolio.
         """))
     step("Uploading research note...")
-    resp = team.document.run(f"Upload the document at {doc_path} with title 'NVDA Q4 Analysis' and tags 'nvda,earnings,ai'")
+    resp = team.document.run(f"Upload the document at {doc_path} with title 'NVDA Q4 Analysis' and tags 'nvda,earnings,ai'")  # type: ignore[assignment]
     show_response(resp)
 
     step("Searching documents...")
-    resp = team.document.run("Search for documents about NVIDIA earnings risks")
+    resp = team.document.run("Search for documents about NVIDIA earnings risks")  # type: ignore[assignment]
     show_response(resp)
 
     # 7. Dashboard Agent
     section("7. Dashboard Agent — Real-time Dashboards")
     step("Listing ticking tables...")
-    resp = team.dashboard.run("What ticking tables are currently available?")
+    resp = team.dashboard.run("What ticking tables are currently available?")  # type: ignore[assignment]
     show_response(resp)
 
     step("Creating ticking table...")
-    resp = team.dashboard.run(
+    resp = team.dashboard.run(  # type: ignore[assignment]
         "Create a ticking table called demo_prices with columns: symbol (str), price (float), volume (int)"
     )
     show_response(resp)
@@ -269,11 +269,11 @@ def main():
     # 8. Query Agent
     section("8. Query Agent — Cross-Store Discovery")
     step("Discovering all datasets...")
-    resp = team.query.run("What datasets are available across all platform stores?")
+    resp = team.query.run("What datasets are available across all platform stores?")  # type: ignore[assignment]
     show_response(resp)
 
     step("Cross-store query...")
-    resp = team.query.run("Get a market data snapshot for equity symbols")
+    resp = team.query.run("Get a market data snapshot for equity symbols")  # type: ignore[assignment]
     show_response(resp)
 
     # ── Multi-Agent Routing Demo ─────────────────────────────────────
@@ -287,7 +287,7 @@ def main():
 
     for prompt in prompts:
         step(f"Prompt: {prompt}")
-        resp = team.run(prompt)
+        resp = team.run(prompt)  # type: ignore[assignment]
         show_response(resp)
         print()
 

@@ -15,7 +15,10 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 # ---------------------------------------------------------------------------
 # Python type → Deephaven type mapping (lazy, avoids import at module level)
@@ -168,7 +171,7 @@ class LiveTable:
         scope = get_exec_ctx().j_exec_ctx.getQueryScope()
         scope.putParam(name, self._table.j_table)
 
-    def snapshot(self) -> object:
+    def snapshot(self) -> pd.DataFrame:
         """Return a pandas DataFrame snapshot of the current table state."""
         from deephaven import pandas as dhpd
         from deephaven.execution_context import get_exec_ctx

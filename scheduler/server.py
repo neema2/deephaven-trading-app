@@ -30,7 +30,7 @@ from scheduler.dag_runner import DAGRunner
 from scheduler.models import Run, Schedule
 
 if False:  # TYPE_CHECKING
-    from store.client import StoreClient
+    from store.client import StoreClient  # type: ignore[unreachable]
     from store.server import StoreServer
     from workflow.dbos_engine import WorkflowEngine
 

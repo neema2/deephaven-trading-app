@@ -135,9 +135,21 @@ quote-style = "double"
 python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
+warn_unreachable = true
+strict_equality = true
 disallow_untyped_defs = false
 check_untyped_defs = true
 ignore_missing_imports = true
+
+# Require type annotations on source code (not tests/demos)
+[[tool.mypy.overrides]]
+module = [
+    "store.*", "reactive.*", "datacube.*", "lakehouse.*",
+    "agents.*", "ai.*", "marketdata.*", "streaming.*",
+    "scheduler.*", "bridge.*", "workflow.*", "media.*",
+    "timeseries.*",
+]
+disallow_untyped_defs = true
 
 [tool.ty.environment]
 python-version = "3.12"

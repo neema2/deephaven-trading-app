@@ -75,7 +75,7 @@ class TestTickBus:
         await bus.publish(tick)
 
         received = await asyncio.wait_for(tick_iter.__anext__(), timeout=2.0)
-        assert received.symbol == "AAPL"
+        assert received.symbol == "AAPL"  # type: ignore[union-attr]
         await bus.unsubscribe(sub_id)
 
     @pytest.mark.asyncio
@@ -87,7 +87,7 @@ class TestTickBus:
         await bus.publish(_make_tick("MSFT", 415.0))
 
         received = await asyncio.wait_for(tick_iter.__anext__(), timeout=2.0)
-        assert received.symbol == "MSFT"
+        assert received.symbol == "MSFT"  # type: ignore[union-attr]
         await bus.unsubscribe(sub_id)
 
     @pytest.mark.asyncio
@@ -100,7 +100,7 @@ class TestTickBus:
 
         t1 = await asyncio.wait_for(tick_iter.__anext__(), timeout=2.0)
         t2 = await asyncio.wait_for(tick_iter.__anext__(), timeout=2.0)
-        assert {t1.symbol, t2.symbol} == {"AAPL", "MSFT"}
+        assert {t1.symbol, t2.symbol} == {"AAPL", "MSFT"}  # type: ignore[union-attr]
         await bus.unsubscribe(sub_id)
 
     @pytest.mark.asyncio
@@ -116,7 +116,7 @@ class TestTickBus:
         t1 = await asyncio.wait_for(tick_iter.__anext__(), timeout=2.0)
         t2 = await asyncio.wait_for(tick_iter.__anext__(), timeout=2.0)
         # Oldest (A) dropped, should get B and C
-        assert {t1.symbol, t2.symbol} == {"B", "C"}
+        assert {t1.symbol, t2.symbol} == {"B", "C"}  # type: ignore[union-attr]
         await bus.unsubscribe(sub_id)
 
     @pytest.mark.asyncio
@@ -192,7 +192,7 @@ class TestTickBusMultiAsset:
         await bus.publish(_make_tick("MSFT", 415.0))
 
         received = await asyncio.wait_for(msg_iter.__anext__(), timeout=2.0)
-        assert received.symbol == "MSFT"
+        assert received.symbol == "MSFT"  # type: ignore[union-attr]
         await bus.unsubscribe(sub_id)
 
     @pytest.mark.asyncio
@@ -252,21 +252,21 @@ class TestModels:
 
     def test_discriminated_union_parse_equity(self):
         from pydantic import TypeAdapter
-        adapter = TypeAdapter(MarketDataMessage)
+        adapter = TypeAdapter(MarketDataMessage)  # type: ignore[var-annotated]
         data = _make_tick().model_dump()
         msg = adapter.validate_python(data)
         assert isinstance(msg, Tick)
 
     def test_discriminated_union_parse_fx(self):
         from pydantic import TypeAdapter
-        adapter = TypeAdapter(MarketDataMessage)
+        adapter = TypeAdapter(MarketDataMessage)  # type: ignore[var-annotated]
         data = _make_fx_tick().model_dump()
         msg = adapter.validate_python(data)
         assert isinstance(msg, FXTick)
 
     def test_discriminated_union_parse_curve(self):
         from pydantic import TypeAdapter
-        adapter = TypeAdapter(MarketDataMessage)
+        adapter = TypeAdapter(MarketDataMessage)  # type: ignore[var-annotated]
         data = _make_curve_tick().model_dump()
         msg = adapter.validate_python(data)
         assert isinstance(msg, CurveTick)
@@ -357,10 +357,10 @@ class TestSimulatorFeed:
             pass
         await bus.unsubscribe(sub_id)
 
-        assert tick.price > 0
-        assert tick.bid < tick.ask
-        assert 100 <= tick.volume <= 10_000
-        assert math.isfinite(tick.change_pct)
+        assert tick.price > 0  # type: ignore[union-attr]
+        assert tick.bid < tick.ask  # type: ignore[union-attr]
+        assert 100 <= tick.volume <= 10_000  # type: ignore[union-attr]
+        assert math.isfinite(tick.change_pct)  # type: ignore[union-attr]
         assert tick.timestamp is not None
 
     @pytest.mark.asyncio

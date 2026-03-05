@@ -159,7 +159,7 @@ and *volatility surface* construction.
         import pymupdf
         doc = pymupdf.open()
         page = doc.new_page()
-        page.insert_text((72, 72), "Collateralized debt obligation pricing\n"
+        page.insert_text((72, 72), "Collateralized debt obligation pricing\n"  # type: ignore[attr-defined]
                          "using Monte Carlo simulation for tranche valuation.", fontsize=12)
         pdf_bytes = doc.tobytes()
         doc.close()

@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     import duckdb
+    import pandas as pd
+    import pyarrow as pa
     from store.base import Storable
 
 
@@ -131,7 +133,7 @@ class Datacube:
 
     # ── Query ─────────────────────────────────────────────────────
 
-    def query(self) -> object:
+    def query(self) -> pa.Table:
         """Execute the datacube query and return a PyArrow Table."""
 
         snap = self._ensure_pivot_values()
@@ -139,7 +141,7 @@ class Datacube:
         logger.debug("Datacube SQL:\n%s", sql)
         return self._conn.execute(sql).fetch_arrow_table()
 
-    def query_df(self) -> object:
+    def query_df(self) -> pd.DataFrame:
         """Execute and return a pandas DataFrame."""
         snap = self._ensure_pivot_values()
         sql = _compiler.compile(snap)
@@ -213,7 +215,7 @@ class Datacube:
             elif isinstance(s, tuple):
                 parsed.append(Sort(field=s[0], descending=s[1] if len(s) > 1 else False))
             else:
-                parsed.append(Sort(field=s, descending=False))
+                parsed.append(Sort(field=s, descending=False))  # type: ignore[unreachable]
         return self._evolve(sort=tuple(parsed))
 
     def add_join(
@@ -529,7 +531,7 @@ def _resolve_storable_source(cls: type[Storable]) -> tuple[Any, str, list[Datacu
     rows: list[dict[str, Any]] = []
     for item in items:
         if dc_mod.is_dataclass(item):
-            row = {}
+            row = {}  # type: ignore[unreachable]
             for f in dc_mod.fields(item):
                 if not f.name.startswith("_"):
                     row[f.name] = getattr(item, f.name)

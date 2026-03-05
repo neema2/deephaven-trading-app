@@ -203,13 +203,13 @@ class TestBridgeDH:
 
         # Emit event manually
         event = ChangeEvent(
-            entity_id=w._store_entity_id,
+            entity_id=w._store_entity_id,  # type: ignore[arg-type]
             version=1,
             event_type="CREATED",
             type_name=Widget.type_name(),
             updated_by="bridge_user",
             state=None,
-            tx_time=w._store_tx_time,
+            tx_time=w._store_tx_time,  # type: ignore[arg-type]
         )
         bridge._dispatch(event)
         _flush_dh()
@@ -247,13 +247,13 @@ class TestBridgeDH:
 
         # Dispatch a Gadget event — Widget bridge should ignore it
         event = ChangeEvent(
-            entity_id=g._store_entity_id,
+            entity_id=g._store_entity_id,  # type: ignore[arg-type]
             version=1,
             event_type="CREATED",
             type_name=Gadget.type_name(),
             updated_by="bridge_user",
             state=None,
-            tx_time=g._store_tx_time,
+            tx_time=g._store_tx_time,  # type: ignore[arg-type]
         )
         bridge._dispatch(event)
         _flush_dh()
@@ -282,9 +282,9 @@ class TestBridgeDH:
 
         bridge.start()
         event = ChangeEvent(
-            entity_id=w._store_entity_id, version=1,
+            entity_id=w._store_entity_id, version=1,  # type: ignore[arg-type]
             event_type="CREATED", type_name=Widget.type_name(),
-            updated_by="bridge_user", state=None, tx_time=w._store_tx_time,
+            updated_by="bridge_user", state=None, tx_time=w._store_tx_time,  # type: ignore[arg-type]
         )
         bridge._dispatch(event)
         _flush_dh()
@@ -316,9 +316,9 @@ class TestBridgeDH:
 
         bridge.start()
         event = ChangeEvent(
-            entity_id=w._store_entity_id, version=1,
+            entity_id=w._store_entity_id, version=1,  # type: ignore[arg-type]
             event_type="CREATED", type_name=Widget.type_name(),
-            updated_by="bridge_user", state=None, tx_time=w._store_tx_time,
+            updated_by="bridge_user", state=None, tx_time=w._store_tx_time,  # type: ignore[arg-type]
         )
         bridge._dispatch(event)
         _flush_dh()
@@ -351,9 +351,9 @@ class TestBridgeDH:
 
         bridge.start()
         event = ChangeEvent(
-            entity_id=w._store_entity_id, version=1,
+            entity_id=w._store_entity_id, version=1,  # type: ignore[arg-type]
             event_type="CREATED", type_name=Widget.type_name(),
-            updated_by="bridge_user", state=None, tx_time=w._store_tx_time,
+            updated_by="bridge_user", state=None, tx_time=w._store_tx_time,  # type: ignore[arg-type]
         )
         bridge._dispatch(event)
         _flush_dh()

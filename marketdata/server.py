@@ -15,6 +15,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from timeseries.base import TSDBBackend
@@ -165,13 +166,13 @@ def _require_tsdb() -> TSDBBackend:
 
 
 @app.get("/md/history/{msg_type}/{symbol:path}")
-async def get_tick_history(  # noqa: ANN201
+async def get_tick_history(
     msg_type: str,
     symbol: str,
     start: datetime | None = Query(None, description="Start time (ISO 8601)"),
     end: datetime | None = Query(None, description="End time (ISO 8601)"),
     limit: int = Query(1000, ge=1, le=10000, description="Max rows"),
-):
+) -> list[dict[str, Any]]:
     """Raw tick history for a symbol within a time range."""
     tsdb = _require_tsdb()
     if start is None:
@@ -182,13 +183,13 @@ async def get_tick_history(  # noqa: ANN201
 
 
 @app.get("/md/bars/{msg_type}/{symbol:path}")
-async def get_bars(  # noqa: ANN201
+async def get_bars(
     msg_type: str,
     symbol: str,
     interval: str = Query("1m", description="Bar interval: 1s,5s,1m,5m,15m,1h,4h,1d"),
     start: datetime | None = Query(None, description="Start time (ISO 8601)"),
     end: datetime | None = Query(None, description="End time (ISO 8601)"),
-):
+) -> list[dict[str, Any]]:
     """OHLCV bars for a symbol at the given interval."""
     tsdb = _require_tsdb()
     bars = tsdb.get_bars(msg_type, symbol, interval, start, end)
@@ -196,12 +197,12 @@ async def get_bars(  # noqa: ANN201
 
 
 @app.get("/md/bars/{msg_type}")
-async def get_bars_by_type(  # noqa: ANN201
+async def get_bars_by_type(
     msg_type: str,
     interval: str = Query("1h", description="Bar interval"),
     start: datetime | None = Query(None, description="Start time (ISO 8601)"),
     end: datetime | None = Query(None, description="End time (ISO 8601)"),
-):
+) -> dict[str, list[dict[str, Any]]]:
     """Latest bars for all symbols of a given type."""
     tsdb = _require_tsdb()
     latest = tsdb.get_latest(msg_type)
@@ -216,10 +217,10 @@ async def get_bars_by_type(  # noqa: ANN201
 
 
 @app.get("/md/latest/{msg_type}")
-async def get_latest_from_tsdb(  # noqa: ANN201
+async def get_latest_from_tsdb(
     msg_type: str,
     symbol: str | None = Query(None, description="Filter by symbol"),
-):
+) -> list[dict[str, Any]]:
     """Latest tick(s) per symbol from the time-series store."""
     tsdb = _require_tsdb()
     return tsdb.get_latest(msg_type, symbol)

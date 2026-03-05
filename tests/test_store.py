@@ -60,11 +60,11 @@ def _track_action(obj, from_state, to_state):
 
 
 def _track_on_enter(obj, from_state, to_state):
-    action_log.append(("on_enter", to_state))
+    action_log.append(("on_enter", to_state))  # type: ignore[arg-type]
 
 
 def _track_on_exit(obj, from_state, to_state):
-    action_log.append(("on_exit", from_state))
+    action_log.append(("on_exit", from_state))  # type: ignore[arg-type]
 
 
 class OrderLifecycle(StateMachine):
@@ -366,7 +366,7 @@ class TestBiTemporal:
         alice.update(w, valid_from=past)
 
         assert w._store_event_type == "CORRECTED"
-        assert w._store_valid_from <= datetime.now(timezone.utc)
+        assert w._store_valid_from <= datetime.now(timezone.utc)  # type: ignore[operator]
 
     def test_valid_from_defaults_to_now(self, alice):
         """When valid_from is not specified, it defaults to now()."""
@@ -420,7 +420,7 @@ class TestBiTemporal:
         tx2 = w._store_tx_time
 
         # Different versions have different tx_times
-        assert tx2 > tx1
+        assert tx2 > tx1  # type: ignore[operator]
 
 
 # ── State Machine ───────────────────────────────────────────────────────────
@@ -614,7 +614,7 @@ class TestStateMachine:
         o = Order(symbol="AAPL", quantity=100, price=228.0, side="BUY")
         alice.write(o)
         alice.transition(o, "PARTIAL")
-        assert ("on_exit", "PENDING") in action_log
+        assert ("on_exit", "PENDING") in action_log  # type: ignore[comparison-overlap]
 
     def test_on_enter_fires(self, alice):
         """on_enter['FILLED'] should fire when entering FILLED."""
@@ -622,7 +622,7 @@ class TestStateMachine:
         o = Order(symbol="AAPL", quantity=100, price=228.0, side="BUY")
         alice.write(o)
         alice.transition(o, "FILLED")
-        assert ("on_enter", "FILLED") in action_log
+        assert ("on_enter", "FILLED") in action_log  # type: ignore[comparison-overlap]
 
     def test_hook_order_exit_then_action_then_enter(self, alice):
         """Hooks fire in order: on_exit → action → on_enter."""
@@ -634,8 +634,8 @@ class TestStateMachine:
         # FILLED → SETTLED fires action + no hooks for these states
         alice.transition(o, "SETTLED")
         # Check on_exit[PENDING] came before on_enter[FILLED]
-        exit_idx = action_log.index(("on_exit", "PENDING"))
-        enter_idx = action_log.index(("on_enter", "FILLED"))
+        exit_idx = action_log.index(("on_exit", "PENDING"))  # type: ignore[arg-type]
+        enter_idx = action_log.index(("on_enter", "FILLED"))  # type: ignore[arg-type]
         assert exit_idx < enter_idx
 
     def test_no_hooks_for_unregistered_states(self, alice):
@@ -645,7 +645,7 @@ class TestStateMachine:
         alice.write(o)
         alice.transition(o, "PARTIAL")
         # on_exit[PENDING] fires, but no on_enter[PARTIAL]
-        assert not any(e == ("on_enter", "PARTIAL") for e in action_log)
+        assert not any(e == ("on_enter", "PARTIAL") for e in action_log)  # type: ignore[comparison-overlap]
 
 
 # ── Basic CRUD ───────────────────────────────────────────────────────────────
@@ -814,7 +814,7 @@ class TestBulkOperations:
         before = alice.count(Widget)
         widgets = [Widget(name=f"atomic_{i}", color="x", weight=1.0) for i in range(3)]
         # Corrupt the third object to cause failure
-        widgets[2]._state_machine = "not_a_state_machine"
+        widgets[2]._state_machine = "not_a_state_machine"  # type: ignore[assignment, misc]
         with pytest.raises(Exception):
             alice.write_many(widgets)
         # None should have persisted
@@ -1172,8 +1172,8 @@ class TestSharing:
         share_read(alice.conn, entity_id, "bob")
         share_write(alice.conn, entity_id, "charlie")
         perms = list_shared_with(alice.conn, entity_id)
-        assert "bob" in perms["readers"]
-        assert "charlie" in perms["writers"]
+        assert "bob" in perms["readers"]  # type: ignore[index]
+        assert "charlie" in perms["writers"]  # type: ignore[index]
 
     def test_third_party_cannot_see_shared_between_others(self, alice, bob, charlie):
         w = Widget(name="alice_bob_only", color="x", weight=1.0)
@@ -1398,7 +1398,7 @@ class TestClientEventBus:
         )
         w1 = Widget(name="bus_e1", color="x", weight=1.0)
         c.write(w1)
-        bus.on_entity(w1._store_entity_id, lambda e: events.append(e))
+        bus.on_entity(w1._store_entity_id, lambda e: events.append(e))  # type: ignore[arg-type]
         w2 = Widget(name="bus_e2", color="x", weight=1.0)
         c.write(w2)  # should NOT trigger
         w1.color = "updated"
@@ -1472,7 +1472,7 @@ class TestSubscriptionListener:
         )
         listener._conn.autocommit = True
         from datetime import timedelta
-        listener._last_tx_time = before_time - timedelta(seconds=1)
+        listener._last_tx_time = before_time - timedelta(seconds=1)  # type: ignore[assignment, operator]
         listener._catch_up()
         listener._conn.close()
 
@@ -1591,7 +1591,7 @@ class TestThreeTierTransition:
             ]
 
         order = Order(symbol="AAPL", quantity=10, price=150.0, side="BUY")
-        order._state_machine = T1Lifecycle
+        order._state_machine = T1Lifecycle  # type: ignore[misc]
         alice.write(order)
         alice.transition(order, "DONE")
 
@@ -1609,7 +1609,7 @@ class TestThreeTierTransition:
             ]
 
         order = Order(symbol="MSFT", quantity=5, price=200.0, side="SELL")
-        order._state_machine = FailLifecycle
+        order._state_machine = FailLifecycle  # type: ignore[misc]
         alice.write(order)
 
         with pytest.raises(ValueError, match="action failed"):
@@ -1634,7 +1634,7 @@ class TestThreeTierTransition:
             ]
 
         order = Order(symbol="GOOG", quantity=1, price=100.0, side="BUY")
-        order._state_machine = T2Lifecycle
+        order._state_machine = T2Lifecycle  # type: ignore[misc]
         alice.write(order)
         alice.transition(order, "B")
 
@@ -1653,7 +1653,7 @@ class TestThreeTierTransition:
             ]
 
         order = Order(symbol="TSLA", quantity=1, price=300.0, side="BUY")
-        order._state_machine = T2FailLifecycle
+        order._state_machine = T2FailLifecycle  # type: ignore[misc]
         alice.write(order)
 
         # Should NOT raise — on_enter failures are swallowed
@@ -1672,7 +1672,7 @@ class TestThreeTierTransition:
             ]
 
         order = Order(symbol="META", quantity=1, price=400.0, side="BUY")
-        order._state_machine = T3Lifecycle
+        order._state_machine = T3Lifecycle  # type: ignore[misc]
         # Do NOT set _workflow_engine
         type(order)._workflow_engine = None
         alice.write(order)
@@ -1699,8 +1699,8 @@ class TestThreeTierTransition:
             ]
 
         order = Order(symbol="AMZN", quantity=1, price=180.0, side="BUY")
-        order._state_machine = T3DispatchLifecycle
-        type(order)._workflow_engine = FakeEngine()
+        order._state_machine = T3DispatchLifecycle  # type: ignore[misc]
+        type(order)._workflow_engine = FakeEngine()  # type: ignore[assignment]
         alice.write(order)
         alice.transition(order, "CLOSED")
 
@@ -1730,8 +1730,8 @@ class TestThreeTierTransition:
             ]
 
         order = Order(symbol="NVDA", quantity=1, price=800.0, side="BUY")
-        order._state_machine = AllTiersLifecycle
-        type(order)._workflow_engine = FakeEngine()
+        order._state_machine = AllTiersLifecycle  # type: ignore[misc]
+        type(order)._workflow_engine = FakeEngine()  # type: ignore[assignment]
         alice.write(order)
         alice.transition(order, "FINAL")
 

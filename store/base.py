@@ -268,7 +268,7 @@ class Storable:
     def to_json(self) -> str:
         """Serialize this object to a JSON string for JSONB storage."""
         if dataclasses.is_dataclass(self):
-            data = dataclasses.asdict(self)
+            data = dataclasses.asdict(self)  # type: ignore[unreachable]
         else:
             data = {
                 k: v for k, v in self.__dict__.items()
@@ -282,7 +282,7 @@ class Storable:
         data = json.loads(json_str, object_hook=_json_decoder_hook)
         if dataclasses.is_dataclass(cls):
             # Filter to only fields the dataclass expects
-            field_names = {f.name for f in dataclasses.fields(cls)}
+            field_names = {f.name for f in dataclasses.fields(cls)}  # type: ignore[unreachable]
             filtered = {k: v for k, v in data.items() if k in field_names}
             return cls(**filtered)
         else:
@@ -343,7 +343,7 @@ class Storable:
             )
         # Copy all data fields — use setattr so reactive Signals update
         if dataclasses.is_dataclass(self):
-            for f in dataclasses.fields(self):
+            for f in dataclasses.fields(self):  # type: ignore[unreachable]
                 setattr(self, f.name, getattr(fresh, f.name))
         # Copy store metadata
         for attr in ('_store_entity_id', '_store_version', '_store_owner',

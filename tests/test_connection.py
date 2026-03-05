@@ -244,9 +244,9 @@ class TestHistoryAuditRefresh:
         item.save()
 
         # Simulate external change via internal client
-        item2 = Item.find(item._store_entity_id)
-        item2.value = 99.0
-        item2.save()
+        item2 = Item.find(item._store_entity_id)  # type: ignore[arg-type]
+        item2.value = 99.0  # type: ignore[union-attr]
+        item2.save()  # type: ignore[union-attr]
 
         # Our local object is stale
         assert item.value == 10.0

@@ -22,7 +22,7 @@ from typing import Any
 from timeseries._registry import register_alias as _register_alias
 
 if False:  # TYPE_CHECKING
-    from timeseries.backends.questdb.manager import QuestDBManager
+    from timeseries.backends.questdb.manager import QuestDBManager  # type: ignore[unreachable]
 
 logger = logging.getLogger(__name__)
 
