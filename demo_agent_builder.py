@@ -39,8 +39,7 @@ import os
 import tempfile
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from media import MediaStore as _MediaStoreType
+from media import MediaStore as _MediaStoreType
 
 import textwrap
 import threading

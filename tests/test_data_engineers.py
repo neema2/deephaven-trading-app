@@ -96,7 +96,7 @@ def codegen_env(tmp_path):
 @pytest.fixture(scope="module")
 def store_server():
     """Start a real embedded Postgres for OLTP e2e tests."""
-    from store.server import StoreServer
+    from store.admin import StoreServer
     tmp_dir = tempfile.mkdtemp(prefix="test_agents_")
     srv = StoreServer(data_dir=tmp_dir, admin_password="test_admin_pw")
     srv.start()

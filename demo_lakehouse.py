@@ -153,8 +153,8 @@ async def run_demo(args):
     # ── Step 1: Start the lakehouse stack ──────────────────────────────
     print("Step 2: Starting lakehouse stack...")
     from lakehouse.admin import LakehouseServer, SyncEngine
-    from store.server import StoreServer
-    from timeseries.factory import create_backend
+    from store.admin import StoreServer
+    from timeseries.admin import create_backend
 
     # Object store (Storable PG)
     server = StoreServer(data_dir=tempfile.mkdtemp(prefix="dm_lh_st_", dir="/tmp"))

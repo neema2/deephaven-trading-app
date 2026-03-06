@@ -11,7 +11,7 @@ import uuid
 
 import pytest
 from media.models import bootstrap_chunks_schema, bootstrap_search_schema
-from store.server import StoreServer
+from store.admin import StoreServer
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
 

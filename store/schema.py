@@ -6,10 +6,7 @@ All DDL runs as app_admin (the table owner).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import psycopg2.extensions
+import psycopg2.extensions
 
 
 GROUP_ROLE = "app_user"

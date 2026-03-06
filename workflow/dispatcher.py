@@ -16,9 +16,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    from store.connection import UserConnection
+from store import UserConnection
 
+if TYPE_CHECKING:
     from workflow.engine import WorkflowEngine
 
 

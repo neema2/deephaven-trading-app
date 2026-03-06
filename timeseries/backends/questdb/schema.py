@@ -7,10 +7,8 @@ DDL for tick tables. Executed via PGWire on startup.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from db import Connection
+from db import Connection
 
 logger = logging.getLogger(__name__)
 

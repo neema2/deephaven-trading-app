@@ -456,7 +456,7 @@ class TestSchedulerIntegration:
 
     @pytest.fixture(scope="class")
     def store_server(self):
-        from store.server import StoreServer
+        from store.admin import StoreServer
         tmp = tempfile.mkdtemp(prefix="test_scheduler_")
         srv = StoreServer(data_dir=tmp)
         srv.start()

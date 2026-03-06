@@ -289,7 +289,7 @@ def create_dashboard_tools(ctx: _PlatformContext) -> list:
         # Generate model code
         lines = [
             "from dataclasses import dataclass",
-            "from store.base import Storable",
+            "from store import Storable",
             "from reactive.computed import computed",
             "try:",
             "    from streaming.decorator import ticking",

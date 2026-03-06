@@ -24,11 +24,8 @@ from typing import TYPE_CHECKING, Any
 import pgserver
 from pgserver import PostgresServer
 
-from db import connect as _db_connect
+from db import Connection, connect as _db_connect
 from workflow._registry import register_alias as _register_alias
-
-if TYPE_CHECKING:
-    from db import Connection
 
 # Reuse the same role constants as store for DBOS compatibility
 ADMIN_ROLE = "app_admin"

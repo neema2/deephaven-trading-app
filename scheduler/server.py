@@ -29,10 +29,9 @@ from scheduler.cron import is_due
 from scheduler.dag_runner import DAGRunner
 from scheduler.models import Run, Schedule
 
-if TYPE_CHECKING:
-    from store.connection import UserConnection
-    from store.server import StoreServer
-    from workflow.dbos_engine import WorkflowEngine
+from store import UserConnection
+from store.admin import StoreServer
+from workflow.dbos_engine import WorkflowEngine
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +92,8 @@ class SchedulerServer:
         Returns:
             self (for chaining).
         """
-        from store.connection import connect
-        from store.server import StoreServer
+        from store import connect
+        from store.admin import StoreServer
         from workflow.factory import create_engine
 
         # 1. Embedded PG

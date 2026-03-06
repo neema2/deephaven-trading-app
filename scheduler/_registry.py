@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import threading
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from scheduler.server import SchedulerServer
+from scheduler.server import SchedulerServer
 
 _aliases: dict[str, dict] = {}
 _lock = threading.Lock()

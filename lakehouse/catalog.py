@@ -9,12 +9,8 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING
 
-from pyiceberg.catalog import load_catalog
-
-if TYPE_CHECKING:
-    from pyiceberg.catalog import Catalog
+from pyiceberg.catalog import Catalog, load_catalog
 
 logger = logging.getLogger(__name__)
 

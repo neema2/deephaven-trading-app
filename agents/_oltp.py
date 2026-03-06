@@ -351,7 +351,7 @@ def create_oltp_tools(ctx: _PlatformContext) -> list:
 
         # Need an active store connection
         try:
-            from store.connection import active_connection
+            from store import active_connection
             conn = active_connection()
         except RuntimeError:
             # Try to connect using context
@@ -392,7 +392,7 @@ def create_oltp_tools(ctx: _PlatformContext) -> list:
 
         # Need an active store connection
         try:
-            from store.connection import active_connection
+            from store import active_connection
             active_connection()
         except RuntimeError:
             if ctx.store_alias:
@@ -428,7 +428,7 @@ def create_oltp_tools(ctx: _PlatformContext) -> list:
 
         # Need an active store connection
         try:
-            from store.connection import active_connection
+            from store import active_connection
             active_connection()
         except RuntimeError:
             if ctx.store_alias:

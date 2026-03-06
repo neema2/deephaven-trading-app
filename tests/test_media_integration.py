@@ -17,7 +17,7 @@ def pg_server():
     """Start an embedded PG server for the media tests."""
     import tempfile
 
-    from store.server import StoreServer
+    from store.admin import StoreServer
     server = StoreServer(data_dir=tempfile.mkdtemp(prefix="test_media_store_"))
     server.start()
     server.provision_user("media_user", "media_pw")

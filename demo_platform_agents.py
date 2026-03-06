@@ -81,7 +81,7 @@ def main():
     section("Starting Platform Infrastructure")
 
     # 1. StoreServer
-    from store.server import StoreServer
+    from store.admin import StoreServer
     store_dir = tempfile.mkdtemp(prefix="demo_pa_store_")
     store = StoreServer(data_dir=store_dir, admin_password="demo_admin")
     store.start()

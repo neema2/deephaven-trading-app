@@ -270,7 +270,7 @@ class TestAgentMemory:
     @pytest.fixture
     def pg_and_memory(self):
         from ai.memory import AgentMemory
-        from store.server import StoreServer
+        from store.admin import StoreServer
 
         server = StoreServer(data_dir=tempfile.mkdtemp(prefix="test_agent_mem_"))
         server.start()

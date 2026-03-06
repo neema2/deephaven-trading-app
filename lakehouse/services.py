@@ -20,9 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
-
-if TYPE_CHECKING:
-    from objectstore import ObjectStore
+from objectstore import ObjectStore
 
 logger = logging.getLogger(__name__)
 

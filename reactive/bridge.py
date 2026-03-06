@@ -10,13 +10,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from reaktiv import Effect
 from reaktiv.signal import ComputeSignal as _ComputeSignal
 
-if TYPE_CHECKING:
-    from store.connection import UserConnection
+from store import UserConnection
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,7 @@ def auto_persist_effect(obj: Any, store_conn: UserConnection | None = None) -> l
         List of Effect instances created (one per @computed on this object).
     """
     if store_conn is None:
-        from store.connection import active_connection
+        from store import active_connection
         store_conn = active_connection()
 
     reactive = object.__getattribute__(obj, '_reactive')

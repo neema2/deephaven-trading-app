@@ -83,7 +83,7 @@ def pg_server():
     import tempfile
 
     from media.models import bootstrap_chunks_schema, bootstrap_search_schema
-    from store.server import StoreServer
+    from store.admin import StoreServer
     server = StoreServer(data_dir=tempfile.mkdtemp(prefix="test_ai_client_"))
     server.start()
     server.provision_user("ai_user", "ai_pw")

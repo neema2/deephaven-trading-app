@@ -20,11 +20,10 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 import duckdb
+import pandas as pd
 import pyarrow as pa
 
 if TYPE_CHECKING:
-    import pandas as pd
-
     from datacube.engine import Datacube as _Datacube
 
 logger = logging.getLogger(__name__)

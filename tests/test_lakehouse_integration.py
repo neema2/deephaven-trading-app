@@ -28,9 +28,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from marketdata.models import CurveTick, FXTick, Tick
-from store.base import Storable
-from store.connection import connect
-from store.server import StoreServer
+from store import Storable
+from store import connect
+from store.admin import StoreServer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -581,7 +581,7 @@ class TestEventBridgeLakehouseSink:
 
         from bridge import LakehouseSink, StoreBridge
         from lakehouse import Lakehouse
-        from store.connection import connect
+        from store import connect
 
         info = server.conn_info()
 
@@ -647,7 +647,7 @@ class TestEventBridgeLakehouseSink:
 
         from bridge import LakehouseSink, StoreBridge
         from lakehouse import Lakehouse
-        from store.connection import connect
+        from store import connect
 
         info = server.conn_info()
         db = connect(

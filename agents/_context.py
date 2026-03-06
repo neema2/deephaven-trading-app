@@ -9,17 +9,15 @@ client properties to talk to platform services.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from ai import AI
-    from lakehouse import Lakehouse
-    from marketdata.client import MarketDataClient
-    from media.store import MediaStore
-    from store import Storable
-    from store.connection import UserConnection
-    from streaming import StreamingClient
-    from timeseries import Timeseries
+from ai import AI
+from lakehouse import Lakehouse
+from marketdata.client import MarketDataClient
+from media.store import MediaStore
+from store import Storable, UserConnection
+from streaming import StreamingClient
+from timeseries import Timeseries
 
 logger = logging.getLogger(__name__)
 

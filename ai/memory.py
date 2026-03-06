@@ -26,13 +26,11 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from ai._types import Message
-from store.base import Storable
-
 if TYPE_CHECKING:
-    from store.connection import UserConnection
-
     from ai.client import AI
+
+from ai._types import Message
+from store import Storable, UserConnection
 
 logger = logging.getLogger(__name__)
 

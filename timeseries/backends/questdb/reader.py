@@ -12,11 +12,8 @@ from typing import TYPE_CHECKING
 
 import psycopg2.extras
 
-from db import connect as _db_connect
+from db import Connection, connect as _db_connect
 from timeseries.models import Bar
-
-if TYPE_CHECKING:
-    from db import Connection
 
 logger = logging.getLogger(__name__)
 

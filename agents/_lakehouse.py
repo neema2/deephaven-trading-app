@@ -24,12 +24,10 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ai import Agent, tool
-
-if TYPE_CHECKING:
-    from lakehouse import Lakehouse
+from lakehouse import Lakehouse
 
 from agents._context import _PlatformContext
 

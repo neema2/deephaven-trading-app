@@ -24,12 +24,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from scheduler.client import Scheduler as SchedulerClient
 from scheduler.models import Schedule, Task
-
-if TYPE_CHECKING:
-    from scheduler.client import Scheduler as SchedulerClient
 
 # Pending tasks grouped by schedule name — collected at import time
 _pending_tasks: list[dict] = []

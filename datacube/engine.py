@@ -18,13 +18,12 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+import duckdb
+import pandas as pd
+import pyarrow as pa
+from typing import Any, Protocol, runtime_checkable
 
-if TYPE_CHECKING:
-    import duckdb
-    import pandas as pd
-    import pyarrow as pa
-    from store import Storable
+from store import Storable
 
 
 @runtime_checkable

@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from store.base import Storable, _json_decoder_hook, _JSONEncoder
 from store._client import QueryResult, StoreClient, VersionConflict
 from store.permissions import list_shared_with, share_read, share_write, unshare_read, unshare_write
-from store.server import StoreServer
+from store.admin import StoreServer
 from store.state_machine import GuardFailure, InvalidTransition, StateMachine, Transition, TransitionNotPermitted
 from store.subscriptions import ChangeEvent, EventBus, SubscriptionListener
 

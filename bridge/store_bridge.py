@@ -27,7 +27,7 @@ import dataclasses
 from typing import TYPE_CHECKING, Any
 
 from store import ChangeEvent, Storable, connect
-from store.subscriptions import EventBus, SubscriptionListener
+from store.admin import EventBus, SubscriptionListener
 from streaming import TickingTable
 
 from bridge.sinks import EventSink

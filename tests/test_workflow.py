@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import pytest
 from store.base import Storable
 from store._client import StoreClient
-from store.server import StoreServer
+from store.admin import StoreServer
 from workflow.engine import WorkflowEngine, WorkflowHandle, WorkflowStatus
 from workflow.factory import create_engine
 

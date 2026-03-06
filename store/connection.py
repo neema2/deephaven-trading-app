@@ -21,9 +21,9 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from store._client import QueryResult, StoreClient
 from store.base import Storable
 
-if TYPE_CHECKING:
-    import psycopg2.extensions
+import psycopg2.extensions
 
+if TYPE_CHECKING:
     from store.subscriptions import EventBus
 
 _S = TypeVar("_S", bound=Storable)

@@ -11,15 +11,13 @@ import logging
 import time as _time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import Any
 
 from scheduler.dag import execution_order, get_task
 from scheduler.models import Run, Schedule, Task, TaskResult
 from scheduler.resolve import resolve_fn
-
-if TYPE_CHECKING:
-    from store.connection import UserConnection
-    from workflow.engine import WorkflowEngine
+from store import UserConnection
+from workflow.engine import WorkflowEngine
 
 logger = logging.getLogger(__name__)
 

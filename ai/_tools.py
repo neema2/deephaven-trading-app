@@ -27,13 +27,11 @@ import inspect
 import json
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, get_type_hints
+from typing import Any, get_type_hints
 
 from ai._types import Tool
-
-if TYPE_CHECKING:
-    from lakehouse.query import Lakehouse
-    from media.store import MediaStore
+from lakehouse import Lakehouse
+from media.store import MediaStore
 
 logger = logging.getLogger(__name__)
 

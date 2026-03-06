@@ -24,7 +24,7 @@ def pg_server():
     import tempfile
 
     from media.models import bootstrap_chunks_schema, bootstrap_search_schema
-    from store.server import StoreServer
+    from store.admin import StoreServer
     server = StoreServer(data_dir=tempfile.mkdtemp(prefix="test_tools_"))
     server.start()
     server.provision_user("tools_user", "tools_pw")

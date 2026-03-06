@@ -22,13 +22,10 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 from ai._llm import LLMClient
 from ai._types import Message, RAGResult
-
-if TYPE_CHECKING:
-    from media.store import MediaStore
+from media.store import MediaStore
 
 logger = logging.getLogger(__name__)
 

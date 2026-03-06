@@ -17,12 +17,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from store.base import Storable
-
-if TYPE_CHECKING:
-    from db import Connection
+from db import Connection
+from store import Storable
 
 logger = logging.getLogger(__name__)
 
