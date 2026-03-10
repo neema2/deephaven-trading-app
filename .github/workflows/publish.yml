@@ -19,12 +19,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Install build tools
-        run: python -m pip install --upgrade pip build
+        run: uv pip install --system build
 
       - name: Packaging hygiene check
         run: |
-          pip install pytest
+          uv pip install --system pytest
           python -m pytest tests/test_packaging.py -v
 
       - name: Build sdist and wheel
