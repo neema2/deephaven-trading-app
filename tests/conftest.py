@@ -42,11 +42,15 @@ if _env_file.exists():
         if key and key not in os.environ:
             os.environ[key] = value
 
-# Fail fast if key is missing — don't silently skip 64 tests.
+# Warn if key is missing — AI-dependent tests will fail naturally,
+# but non-AI tests (store, scheduler, packaging, etc.) can still run.
+import warnings as _warnings
+
 if not os.environ.get("GEMINI_API_KEY"):
-    raise RuntimeError(
-        "GEMINI_API_KEY not set. Create a .env file in the project root:\n"
-        "  echo 'GEMINI_API_KEY=your-key-here' > .env"
+    _warnings.warn(
+        "GEMINI_API_KEY not set — AI-dependent tests will be skipped or fail.\n"
+        "Create a .env file: echo 'GEMINI_API_KEY=your-key-here' > .env",
+        stacklevel=1,
     )
 
 
