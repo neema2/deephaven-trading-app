@@ -21,9 +21,12 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from ai._types import Message
-from ai.client import AI
+
+if TYPE_CHECKING:
+    from ai.client import AI
 
 logger = logging.getLogger(__name__)
 
@@ -215,14 +218,14 @@ Always respond with exactly one JSON object per turn. No other text."""
             clean = "\n".join(lines).strip()
 
         try:
-            return dict(json.loads(clean))
+            return json.loads(clean)
         except json.JSONDecodeError:
             # Try to find JSON in the text
             start = clean.find("{")
             end = clean.rfind("}") + 1
             if start >= 0 and end > start:
                 try:
-                    return dict(json.loads(clean[start:end]))
+                    return json.loads(clean[start:end])
                 except json.JSONDecodeError:
                     pass
             return None

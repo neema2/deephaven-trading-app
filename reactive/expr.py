@@ -594,8 +594,8 @@ _NODE_REGISTRY = {
 
 def from_json(data: dict) -> Expr:
     """Deserialize a JSON dict back to an Expr tree."""
-    if isinstance(data, str):  # type: ignore[unreachable]
-        data = json.loads(data)  # type: ignore[unreachable]
+    if isinstance(data, str):
+        data = json.loads(data)
 
     node_type = data["type"]
 

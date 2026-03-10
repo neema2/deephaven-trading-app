@@ -10,9 +10,12 @@ from __future__ import annotations
 import logging
 import time
 from datetime import timezone
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from questdb.ingress import Sender
 
 from marketdata.models import CurveTick, FXTick, Tick
-from questdb.ingress import Sender
 
 logger = logging.getLogger(__name__)
 

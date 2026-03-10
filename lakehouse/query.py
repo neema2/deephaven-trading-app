@@ -17,12 +17,13 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import duckdb
-import pandas as pd
 import pyarrow as pa
-from datacube.engine import Datacube as _Datacube
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +125,7 @@ class Lakehouse:
 
             # Authenticate with the bearer token
             self._flight_client.authenticate(
-                _TokenClientAuthHandler(self._token or "")
+                _TokenClientAuthHandler(self._token)
             )
 
             # Fetch the set of protected tables from the server
@@ -143,7 +144,7 @@ class Lakehouse:
             self._flight_client = None
             self._protected_tables = set()
 
-    def _ensure_flight(self) -> pa.flight.FlightClient:
+    def _ensure_flight(self) -> Any:
         """Return the authenticated Flight client."""
         if self._flight_client is None:
             raise RuntimeError(
@@ -642,7 +643,7 @@ class Lakehouse:
 
     # ── Datacube ────────────────────────────────────────────────────────
 
-    def datacube(self, table_name: str, **kwargs: Any) -> _Datacube:
+    def datacube(self, table_name: str, **kwargs: Any) -> Any:
         """Create a Datacube over a Lakehouse Iceberg table.
 
         Queries go directly from S3 → DuckDB → result (no Python).
@@ -678,7 +679,7 @@ class Lakehouse:
         """Alias for query_arrow() — backward compatibility with LakehouseQuery."""
         return self.query_arrow(query_str, params)
 
-    def sql_df(self, query_str: str, params: list | None = None) -> pd.DataFrame:
+    def sql_df(self, query_str: str, params: list | None = None) -> object:
         """Alias for query_df() — backward compatibility with LakehouseQuery."""
         return self.query_df(query_str, params)
 
@@ -693,9 +694,6 @@ class _TokenClientAuthHandler:
     Extends flight.ClientAuthHandler when pyarrow.flight is available.
     """
 
-    _token: bytes
-    _session_token: bytes
-
     def __new__(cls, token: str) -> _TokenClientAuthHandler:
         try:
             import pyarrow.flight as _flight
@@ -704,7 +702,7 @@ class _TokenClientAuthHandler:
                 bases = (_flight.ClientAuthHandler,)
                 ns = {k: v for k, v in cls.__dict__.items() if k != "__dict__"}
                 new_cls = type(cls.__name__, bases, ns)
-                instance: _TokenClientAuthHandler = _flight.ClientAuthHandler.__new__(new_cls)  # type: ignore[assignment]
+                instance = _flight.ClientAuthHandler.__new__(new_cls)
                 instance._token = token.encode("utf-8")
                 instance._session_token = b""
                 return instance

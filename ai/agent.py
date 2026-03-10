@@ -25,10 +25,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Generator
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from ai._types import Message, Tool, ToolCall
-from ai.client import AI
 from ai.memory import AgentMemory
+
+if TYPE_CHECKING:
+    from ai.client import AI
 
 logger = logging.getLogger(__name__)
 
@@ -191,10 +194,9 @@ class Agent:
                 temperature=self._temperature,
             )
 
-            # Accumulate usage (skip None values — Gemini API occasionally omits counts)
+            # Accumulate usage
             for k, v in response.usage.items():
-                if v is not None:
-                    total_usage[k] = total_usage.get(k, 0) + v
+                total_usage[k] = total_usage.get(k, 0) + v
 
             if not response.tool_calls:
                 # Final text response

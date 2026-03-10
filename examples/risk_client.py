@@ -27,7 +27,7 @@ def main(host="localhost", port=10000):
 
         # ── 2. Create server-side risk views via run_script ──────────
         client.run_script("""
-from streaming import agg
+from deephaven import agg
 
 # Large exposures: positions where |MarketValue| > 50,000
 large_exposures = risk_live.where(

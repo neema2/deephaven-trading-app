@@ -17,9 +17,9 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from store.admin import StoreServer
 from store.base import Storable
-from store.connection import _set_active, active_connection, connect
+from store.connection import _set_active, connect, get_connection
+from store.server import StoreServer
 from store.state_machine import StateMachine, Transition
 
 # ── Test models ──────────────────────────────────────────────────────────────
@@ -43,9 +43,13 @@ Item._state_machine = ItemLifecycle
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="module")
-def server(store_server):
-    """Delegate to session-scoped store_server from conftest.py."""
-    return store_server
+def server():
+    """Start an embedded PostgreSQL server for testing."""
+    tmp_dir = tempfile.mkdtemp(prefix="test_conn_")
+    srv = StoreServer(data_dir=tmp_dir, admin_password="test_admin_pw")
+    srv.start()
+    yield srv
+    srv.stop()
 
 
 @pytest.fixture(scope="module")
@@ -104,14 +108,14 @@ class TestConnect:
         with connect(host=conn_info["host"], port=conn_info["port"],
                      dbname=conn_info["dbname"],
                      user="alice", password="alice_pw") as db:
-            assert active_connection() is db
+            assert get_connection() is db
         # After exit, connection is deactivated
         _set_active(None)
 
     def test_no_connection_raises(self):
         _set_active(None)
         with pytest.raises(RuntimeError, match="No active connection"):
-            active_connection()
+            get_connection()
 
     def test_repr(self, alice_db):
         assert "alice" in repr(alice_db)
@@ -127,18 +131,18 @@ class TestSaveAndFind:
         item = Item(name="widget", value=42.0)
         entity_id = item.save()
         assert entity_id is not None
-        assert item.entity_id == entity_id
-        assert item.version == 1
+        assert item._store_entity_id == entity_id
+        assert item._store_version == 1
 
     def test_save_updates_existing(self, alice_db):
         item = Item(name="gadget", value=10.0)
         item.save()
-        assert item.version == 1
+        assert item._store_version == 1
 
         item.value = 20.0
         entity_id = item.save()
-        assert item.version == 2
-        assert entity_id == item.entity_id
+        assert item._store_version == 2
+        assert entity_id == item._store_entity_id
 
     def test_find_by_id(self, alice_db):
         item = Item(name="findme", value=99.0)
@@ -192,17 +196,17 @@ class TestTransition:
     def test_transition(self, alice_db):
         item = Item(name="stateful", value=5.0)
         item.save()
-        assert item.state == "ACTIVE"
+        assert item._store_state == "ACTIVE"
 
         item.transition("ARCHIVED")
-        assert item.state == "ARCHIVED"
+        assert item._store_state == "ARCHIVED"
 
     def test_transition_round_trip(self, alice_db):
         item = Item(name="roundtrip", value=5.0)
         item.save()
         item.transition("ARCHIVED")
         item.transition("ACTIVE")
-        assert item.state == "ACTIVE"
+        assert item._store_state == "ACTIVE"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -240,9 +244,9 @@ class TestHistoryAuditRefresh:
         item.save()
 
         # Simulate external change via internal client
-        item2 = Item.find(item.entity_id)  # type: ignore[arg-type]
-        item2.value = 99.0  # type: ignore[union-attr]
-        item2.save()  # type: ignore[union-attr]
+        item2 = Item.find(item._store_entity_id)
+        item2.value = 99.0
+        item2.save()
 
         # Our local object is stale
         assert item.value == 10.0
@@ -339,7 +343,7 @@ class TestShareUnshare:
         assert found is not None
         found.value = 999.0
         found.save()
-        assert found.version == 2
+        assert found._store_version == 2
 
         bob.close()
         alice.activate()

@@ -6,7 +6,11 @@ All operations run as the entity owner (enforced by RLS).
 
 from __future__ import annotations
 
-import psycopg2.extensions
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import psycopg2.extensions
+
 
 
 def share_read(conn: psycopg2.extensions.connection, entity_id: str, to_user: str) -> bool:

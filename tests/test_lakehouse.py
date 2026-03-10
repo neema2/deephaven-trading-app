@@ -9,11 +9,24 @@ import json
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
+import pyarrow as pa
 from lakehouse.models import SyncState, TableInfo
 from lakehouse.sync import (
     _bars_to_arrow,
     _ensure_tz,
+    _pg_rows_to_events_arrow,
     _tick_rows_to_arrow,
+)
+from lakehouse.tables import (
+    BARS_PARTITION,
+    BARS_SCHEMA,
+    EVENTS_PARTITION,
+    EVENTS_SCHEMA,
+    POSITIONS_PARTITION,
+    POSITIONS_SCHEMA,
+    TABLE_DEFS,
+    TICKS_PARTITION,
+    TICKS_SCHEMA,
 )
 
 # ── Model Tests ─────────────────────────────────────────────────────────────
@@ -39,11 +52,105 @@ class TestModels:
         assert info2.current_snapshot_id == 12345 and len(info2.schema_fields) == 3
 
 
+# ── Schema Tests ────────────────────────────────────────────────────────────
+
+
+class TestIcebergSchemas:
+    """Tests for Iceberg table schema definitions."""
+
+    def test_events_schema_fields(self):
+        field_names = [f.name for f in EVENTS_SCHEMA.fields]
+        assert "event_id" in field_names
+        assert "entity_id" in field_names
+        assert "type_name" in field_names
+        assert "tx_time" in field_names
+        assert "valid_from" in field_names
+        assert "data" in field_names
+        assert "event_type" in field_names
+
+    def test_events_partition_spec(self):
+        assert len(EVENTS_PARTITION.fields) == 2
+        names = [f.name for f in EVENTS_PARTITION.fields]
+        assert "type_name_identity" in names
+        assert "tx_time_day" in names
+
+    def test_ticks_schema_fields(self):
+        field_names = [f.name for f in TICKS_SCHEMA.fields]
+        assert "tick_type" in field_names
+        assert "symbol" in field_names
+        assert "price" in field_names
+        assert "bid" in field_names
+        assert "mid" in field_names
+        assert "rate" in field_names
+        assert "timestamp" in field_names
+
+    def test_ticks_partition_spec(self):
+        assert len(TICKS_PARTITION.fields) == 2
+        names = [f.name for f in TICKS_PARTITION.fields]
+        assert "tick_type_identity" in names
+        assert "timestamp_day" in names
+
+    def test_bars_schema_fields(self):
+        field_names = [f.name for f in BARS_SCHEMA.fields]
+        for col in ["symbol", "tick_type", "interval", "open", "high", "low", "close", "timestamp"]:
+            assert col in field_names
+
+    def test_bars_partition_spec(self):
+        assert len(BARS_PARTITION.fields) == 2
+
+    def test_positions_schema_fields(self):
+        field_names = [f.name for f in POSITIONS_SCHEMA.fields]
+        assert "entity_id" in field_names
+        assert "symbol" in field_names
+        assert "quantity" in field_names
+        assert "valid_from" in field_names
+
+    def test_positions_partition_spec(self):
+        assert len(POSITIONS_PARTITION.fields) == 1
+
+    def test_table_defs_registry(self):
+        assert set(TABLE_DEFS.keys()) == {"events", "ticks", "bars_daily", "positions"}
+        for _name, (schema, partition) in TABLE_DEFS.items():
+            assert len(schema.fields) > 0
+            assert len(partition.fields) > 0
+
+
 # ── Arrow Conversion Tests ──────────────────────────────────────────────────
 
 
 class TestArrowConversion:
     """Tests for PG/QuestDB row → Arrow table conversion helpers."""
+
+    def test_pg_rows_to_events_arrow(self):
+        now = datetime.now(timezone.utc)
+        rows = [
+            (
+                "evt-1", "ent-1", 1, "Trade", "alice",
+                "alice", {"symbol": "AAPL", "price": 150.0}, "ACTIVE", "CREATED", None,
+                now, now, None,
+            ),
+            (
+                "evt-2", "ent-2", 1, "Order", "bob",
+                "bob", {"symbol": "MSFT"}, None, "CREATED", {"guard": "check"},
+                now, now, None,
+            ),
+        ]
+        table = _pg_rows_to_events_arrow(rows)
+        assert isinstance(table, pa.Table)
+        assert table.num_rows == 2
+        assert "event_id" in table.column_names
+        assert "entity_id" in table.column_names
+        assert "tx_time" in table.column_names
+        assert table.column("event_id")[0].as_py() == "evt-1"
+        assert table.column("type_name")[1].as_py() == "Order"
+
+    def test_pg_rows_handles_none_data(self):
+        now = datetime.now(timezone.utc)
+        rows = [
+            ("evt-1", "ent-1", 1, "Trade", None, None, None, None, "CREATED", None, now, now, None),
+        ]
+        table = _pg_rows_to_events_arrow(rows)
+        assert table.num_rows == 1
 
     def test_tick_rows_to_arrow_equity(self):
         now = datetime.now(timezone.utc)
@@ -122,9 +229,9 @@ class TestEnsureTz:
 
     def test_ensure_tz_cases(self):
         assert _ensure_tz(None) is None
-        assert _ensure_tz("not a datetime") is None  # type: ignore[arg-type]
+        assert _ensure_tz("not a datetime") is None
         naive = datetime(2025, 1, 1, 12, 0, 0)
-        assert _ensure_tz(naive).tzinfo == timezone.utc  # type: ignore[union-attr]
+        assert _ensure_tz(naive).tzinfo == timezone.utc
         aware = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         assert _ensure_tz(aware) is aware
 
@@ -179,9 +286,9 @@ class TestSyncEngine:
         """Test that sync state round-trips through JSON."""
         state_file = tmp_path / "sync_state.json"
 
-        mock_lakehouse = MagicMock()
+        mock_catalog = MagicMock()
         from lakehouse.sync import SyncEngine
-        engine = SyncEngine(lakehouse=mock_lakehouse, state_path=str(state_file))
+        engine = SyncEngine(catalog=mock_catalog, state_path=str(state_file))
 
         assert engine.state.events_synced == 0
 
@@ -191,20 +298,38 @@ class TestSyncEngine:
         engine._save_state()
 
         # Create new engine reading same file
-        engine2 = SyncEngine(lakehouse=mock_lakehouse, state_path=str(state_file))
+        engine2 = SyncEngine(catalog=mock_catalog, state_path=str(state_file))
         assert engine2.state.events_synced == 100
         assert engine2.state.events_watermark is not None
+
+    def test_sync_events_empty(self, tmp_path):
+        """Test sync_events with no new rows."""
+        state_file = tmp_path / "sync_state.json"
+        mock_catalog = MagicMock()
+
+        from lakehouse.sync import SyncEngine
+        engine = SyncEngine(catalog=mock_catalog, state_path=str(state_file))
+
+        # Mock PG connection returning no rows
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+        count = engine.sync_events(mock_conn)
+        assert count == 0
 
     def test_sync_all_with_no_sources(self, tmp_path):
         """Test sync_all with no sources provided."""
         state_file = tmp_path / "sync_state.json"
-        mock_lakehouse = MagicMock()
+        mock_catalog = MagicMock()
 
         from lakehouse.sync import SyncEngine
-        engine = SyncEngine(lakehouse=mock_lakehouse, state_path=str(state_file))
+        engine = SyncEngine(catalog=mock_catalog, state_path=str(state_file))
 
         result = engine.sync_all()
-        assert result == {"ticks": 0, "bars": 0}
+        assert result == {"events": 0, "ticks": 0, "bars": 0}
 
 
 # ── Platform Detection Tests ───────────────────────────────────────────────

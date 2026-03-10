@@ -9,15 +9,17 @@ client properties to talk to platform services.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Any
 
-from ai import AI
-from lakehouse import Lakehouse
-from marketdata.client import MarketDataClient
-from media.store import MediaStore
-from streaming import StreamingClient
-from timeseries import Timeseries
-
-from store import Storable, UserConnection
+if TYPE_CHECKING:
+    from ai import AI
+    from lakehouse import Lakehouse
+    from marketdata.client import MarketDataClient
+    from media.store import MediaStore
+    from store.base import Storable
+    from store.connection import UserConnection
+    from streaming import StreamingClient
+    from timeseries import Timeseries
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,7 @@ class _PlatformContext:
         streaming_alias: str | None = None,
         md_alias: str | None = None,
         media_alias: str | None = None,
-        ai: AI | None = None,
+        ai: Any = None,
     ) -> None:
         self._alias = alias
         self._user = user
@@ -57,7 +59,7 @@ class _PlatformContext:
         self._media_alias = media_alias or alias
 
         # Pre-built AI (or lazy)
-        self._ai_instance: AI | None = ai
+        self._ai_instance = ai
 
         # Lazy client slots
         self._lakehouse_instance: Lakehouse | None = None
@@ -198,9 +200,8 @@ class _PlatformContext:
         # Store
         if self._store_alias:
             try:
-                conn = self.get_store_connection()
-                conn.close()
-                status["store"] = True
+                from store.connection import _resolve_alias
+                status["store"] = _resolve_alias(self._store_alias) is not None
             except Exception:
                 status["store"] = False
         else:

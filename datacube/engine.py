@@ -18,11 +18,11 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any
 
-import duckdb
-import pandas as pd
-import pyarrow as pa
+if TYPE_CHECKING:
+    import duckdb
+    from store.base import Storable
 
 from datacube import compiler as _compiler
 from datacube.config import (
@@ -34,16 +34,6 @@ from datacube.config import (
     JoinSpec,
     Sort,
 )
-from store import Storable
-
-
-@runtime_checkable
-class LakehouseProtocol(Protocol):
-    """Structural type for the Lakehouse duck-typed interface."""
-
-    def _ensure_conn(self) -> duckdb.DuckDBPyConnection: ...
-    def _fqn(self, table_name: str) -> str: ...
-    def table_info(self, table_name: str) -> list[dict]: ...
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +67,7 @@ class Datacube:
         *,
         snapshot: DatacubeSnapshot | None = None,
         source_name: str | None = None,
-        lakehouse: LakehouseProtocol | None = None,
+        lakehouse: Any | None = None,
     ) -> None:
         """
         Args:
@@ -132,7 +122,7 @@ class Datacube:
 
     # ── Query ─────────────────────────────────────────────────────
 
-    def query(self) -> pa.Table:
+    def query(self) -> object:
         """Execute the datacube query and return a PyArrow Table."""
 
         snap = self._ensure_pivot_values()
@@ -140,7 +130,7 @@ class Datacube:
         logger.debug("Datacube SQL:\n%s", sql)
         return self._conn.execute(sql).fetch_arrow_table()
 
-    def query_df(self) -> pd.DataFrame:
+    def query_df(self) -> object:
         """Execute and return a pandas DataFrame."""
         snap = self._ensure_pivot_values()
         sql = _compiler.compile(snap)
@@ -214,7 +204,7 @@ class Datacube:
             elif isinstance(s, tuple):
                 parsed.append(Sort(field=s[0], descending=s[1] if len(s) > 1 else False))
             else:
-                parsed.append(Sort(field=s, descending=False))  # type: ignore[unreachable]
+                parsed.append(Sort(field=s, descending=False))
         return self._evolve(sort=tuple(parsed))
 
     def add_join(
@@ -371,7 +361,11 @@ class Datacube:
 
 def _is_lakehouse(obj: Any) -> bool:
     """Check if an object is a Lakehouse instance (duck-typed)."""
-    return isinstance(obj, LakehouseProtocol)
+    return (
+        hasattr(obj, '_ensure_conn')
+        and hasattr(obj, '_fqn')
+        and hasattr(obj, 'table_info')
+    )
 
 
 def _columns_from_lakehouse(
@@ -440,7 +434,7 @@ def _columns_from_lakehouse(
 def _resolve_source(
     source: Any,
     *,
-    lakehouse: LakehouseProtocol | None = None,
+    lakehouse: Any | None = None,
 ) -> tuple[Any, str, list[DatacubeColumnConfig]]:
     """Resolve a source argument to (duckdb_conn, source_name, columns).
 
@@ -460,7 +454,7 @@ def _resolve_source(
 
     # Helper: get a DuckDB connection (prefer Lakehouse's if available)
     def _get_conn() -> duckdb.DuckDBPyConnection:
-        if lakehouse is not None and isinstance(lakehouse, LakehouseProtocol):
+        if lakehouse is not None and _is_lakehouse(lakehouse):
             return lakehouse._ensure_conn()
         return duckdb.connect()
 
@@ -527,10 +521,10 @@ def _resolve_storable_source(cls: type[Storable]) -> tuple[Any, str, list[Datacu
         return conn, view_name, _columns_from_storable_class(cls)
 
     # Convert to list of dicts
-    rows: list[dict[str, Any]] = []
+    rows = []
     for item in items:
         if dc_mod.is_dataclass(item):
-            row = {}  # type: ignore[unreachable]
+            row = {}
             for f in dc_mod.fields(item):
                 if not f.name.startswith("_"):
                     row[f.name] = getattr(item, f.name)

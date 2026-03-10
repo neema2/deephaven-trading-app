@@ -48,6 +48,7 @@ from lakehouse.services import LakehouseStack as _LakehouseStack
 from lakehouse.services import start_lakehouse as _start_lakehouse
 from lakehouse.services import stop_lakehouse as _stop_lakehouse
 from lakehouse.sync import SyncEngine
+from lakehouse.tables import ensure_tables
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ def _find_free_port() -> int:
     import socket
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("", 0))
-        return int(s.getsockname()[1])
+        return s.getsockname()[1]
 
 
 class LakehouseServer:
@@ -70,10 +71,10 @@ class LakehouseServer:
     def __init__(
         self,
         data_dir: str = "data/lakehouse",
-        pg_port: int = 5488,
-        lakekeeper_port: int = 8181,
-        s3_api_port: int = 9002,
-        s3_console_port: int = 9003,
+        pg_port: int | None = None,
+        lakekeeper_port: int | None = None,
+        s3_api_port: int | None = None,
+        s3_console_port: int | None = None,
         warehouse: str = "lakehouse",
         bucket: str = "lakehouse",
         # RLS configuration (optional)
@@ -82,10 +83,10 @@ class LakehouseServer:
         rls_port: int | None = None,
     ) -> None:
         self._data_dir = data_dir
-        self._pg_port = pg_port
-        self._lakekeeper_port = lakekeeper_port
-        self._s3_api_port = s3_api_port
-        self._s3_console_port = s3_console_port
+        self._pg_port = pg_port or _find_free_port()
+        self._lakekeeper_port = lakekeeper_port or _find_free_port()
+        self._s3_api_port = s3_api_port or _find_free_port()
+        self._s3_console_port = s3_console_port or _find_free_port()
         self._warehouse = warehouse
         self._bucket = bucket
         self._stack: _LakehouseStack | None = None
@@ -165,7 +166,7 @@ class LakehouseServer:
         time.sleep(0.3)
         logger.info(
             "RLS Flight server started on port %d with %d policies",
-            port, len(self._rls_policies or []),
+            port, len(self._rls_policies),
         )
 
     def _stop_rls_server(self) -> None:
@@ -231,9 +232,10 @@ class LakehouseServer:
 
 __all__ = [
     "LakehouseServer",
-    "RLSFlightServer",
-    "RLSPolicy",
     "SyncEngine",
     "SyncState",
     "create_catalog",
+    "ensure_tables",
+    "RLSFlightServer",
+    "RLSPolicy",
 ]

@@ -52,8 +52,8 @@ def client(streaming_server):
 
 class TestConnection:
     def test_connect_creates_session(self, client):
-        assert client._session is not None
-        assert client._session.is_alive
+        assert client.session is not None
+        assert client.session.is_alive
 
     def test_host_and_port_stored(self, client):
         assert client.host == "localhost"
@@ -61,7 +61,7 @@ class TestConnection:
 
     def test_context_manager_connect_and_close(self, streaming_server):
         with StreamingClient() as c:
-            assert c._session.is_alive
+            assert c.session.is_alive
             tables = c.list_tables()
             assert len(tables) > 0
 

@@ -45,9 +45,8 @@ def run_demo():
 
     from media.admin import MediaServer
     from media.models import bootstrap_search_schema
-    from store.admin import StoreServer
-
-    from store import connect
+    from store.connection import connect
+    from store.server import StoreServer
 
     # PG for Storable metadata
     server = StoreServer(data_dir=tempfile.mkdtemp(prefix="demo_media_store_"))
@@ -202,13 +201,13 @@ def run_demo():
         section("5. Storable features (bi-temporal, audit)")
 
         from media.models import Document
-        found = Document.find(doc1.entity_id)  # type: ignore[arg-type]
-        print(f"  Find by ID: {found.title}")  # type: ignore[union-attr]
+        found = Document.find(doc1._store_entity_id)
+        print(f"  Find by ID: {found.title}")
 
-        history = found.history()  # type: ignore[union-attr]
+        history = found.history()
         print(f"  Version history: {len(history)} versions")
         for h in history:
-            print(f"    v{h.version} — {h.event_type} at {h.tx_time}")
+            print(f"    v{h._store_version} — {h._store_event_type} at {h._store_tx_time}")
 
         # ── Summary ──────────────────────────────────────────────────
         section("Summary")

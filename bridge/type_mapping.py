@@ -81,13 +81,24 @@ infer_dh_schema = infer_schema
 
 
 def _to_dh_value(value: Any) -> Any:
-    """Convert a Python value to a streaming-engine-compatible value.
+    """Convert a Python value to a Deephaven-compatible value.
 
-    Delegates to ``streaming._conversions`` so that this module never
-    imports ``deephaven`` directly.
+    Uses DH's own SDK for type conversions. The only type that
+    DynamicTableWriter.write_row() can't auto-convert is
+    datetime → java.time.Instant.
     """
-    from streaming._conversions import to_streaming_value
-    return to_streaming_value(value)
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        import platform
+        if platform.system() == "Linux" and platform.machine() in ("aarch64", "arm64"):
+            # On ARM/pydeephaven, we use native Python datetimes or Arrow timestamps
+            return value
+        from deephaven.time import to_j_instant
+        return to_j_instant(value)
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
 
 
 # Metadata column definitions: (column_name, store_attr, python_type)

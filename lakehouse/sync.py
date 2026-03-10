@@ -1,10 +1,9 @@
 """
 Lakehouse Sync Engine — Incremental ETL
 =========================================
-Syncs data from QuestDB (ticks/bars) into the Lakehouse via ``Lakehouse.ingest()``.
-Watermark-based incremental sync — no full table scans after initial load.
-
-Store events are synced via EventBridge + LakehouseSink (see bridge.sinks.lakehouse).
+Syncs data from PG (object_events) and QuestDB (ticks/bars) into Iceberg
+tables via PyArrow. Watermark-based incremental sync — no full table scans
+after initial load.
 """
 
 from __future__ import annotations
@@ -13,13 +12,16 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
-from timeseries import TSDBBackend
+from pyiceberg.catalog import Catalog
 
 from lakehouse.models import SyncState
-from lakehouse.query import Lakehouse
+
+if TYPE_CHECKING:
+    import psycopg2.extensions
+    from timeseries.base import TSDBBackend
 
 logger = logging.getLogger(__name__)
 
@@ -29,33 +31,91 @@ DEFAULT_STATE_PATH = "data/lakehouse/sync_state.json"
 
 class SyncEngine:
     """
-    Incremental ETL engine: QuestDB → Lakehouse.
+    Incremental ETL engine: PG + QuestDB → Iceberg.
 
     Tracks watermarks (last synced timestamps) to avoid re-syncing old data.
     Watermarks are persisted to a local JSON file between runs.
-
-    All writes go through ``Lakehouse.ingest(mode="append")``.
-    Store events are handled separately by EventBridge + LakehouseSink.
     """
 
     def __init__(
         self,
-        lakehouse: Lakehouse,
+        catalog: Catalog,
         state_path: str = DEFAULT_STATE_PATH,
+        namespace: str = "default",
     ) -> None:
-        self._lakehouse = lakehouse
+        self._catalog = catalog
         self._state_path = Path(state_path).resolve()
+        self._namespace = namespace
         self._state = self._load_state()
 
     @property
     def state(self) -> SyncState:
         return self._state
 
-    # ── Sync: QuestDB ticks → Lakehouse ticks table ────────────────────────
+    # ── Sync: PG object_events → Iceberg events table ──────────────────────
+
+    def sync_events(self, pg_conn: psycopg2.extensions.connection) -> int:
+        """
+        Incremental sync from PG object_events to Iceberg events table.
+
+        Args:
+            pg_conn: psycopg2 connection to the source PostgreSQL database.
+
+        Returns:
+            Number of events synced.
+        """
+        watermark = self._state.events_watermark
+        table = self._catalog.load_table((self._namespace, "events"))
+
+        with pg_conn.cursor() as cur:
+            if watermark:
+                cur.execute(
+                    """
+                    SELECT event_id, entity_id, version, type_name, owner,
+                           updated_by, data, state, event_type, event_meta,
+                           tx_time, valid_from, valid_to
+                    FROM object_events
+                    WHERE tx_time > %s
+                    ORDER BY tx_time ASC
+                    """,
+                    (watermark,),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT event_id, entity_id, version, type_name, owner,
+                           updated_by, data, state, event_type, event_meta,
+                           tx_time, valid_from, valid_to
+                    FROM object_events
+                    ORDER BY tx_time ASC
+                    """
+                )
+
+            rows = cur.fetchall()
+
+        if not rows:
+            logger.info("No new events to sync")
+            return 0
+
+        # Convert to Arrow table
+        arrow_table = _pg_rows_to_events_arrow(rows)
+        table.append(arrow_table)
+
+        # Update watermark to the latest tx_time
+        last_tx_time = rows[-1][10]  # tx_time column
+        self._state.events_watermark = last_tx_time
+        self._state.events_synced += len(rows)
+        self._state.last_sync_time = datetime.now(timezone.utc)
+        self._save_state()
+
+        logger.info("Synced %d events (watermark → %s)", len(rows), last_tx_time)
+        return len(rows)
+
+    # ── Sync: QuestDB ticks → Iceberg ticks table ──────────────────────────
 
     def sync_ticks(self, backend: TSDBBackend) -> int:
         """
-        Incremental sync from a TSDBBackend to Lakehouse ticks table.
+        Incremental sync from a TSDBBackend to Iceberg ticks table.
 
         Args:
             backend: Any TSDBBackend instance (QuestDB, Memory, etc.).
@@ -65,6 +125,7 @@ class SyncEngine:
         """
         initial_watermark = self._state.ticks_watermark
         new_watermark = initial_watermark
+        table = self._catalog.load_table((self._namespace, "ticks"))
         total = 0
 
         for tick_type in ("equity", "fx", "curve"):
@@ -73,7 +134,7 @@ class SyncEngine:
                 continue
 
             arrow_table = _tick_rows_to_arrow(tick_type, rows)
-            self._lakehouse.ingest("ticks", arrow_table, mode="append")
+            table.append(arrow_table)
             total += len(rows)
 
             # Track the latest timestamp across all tick types
@@ -91,11 +152,11 @@ class SyncEngine:
 
         return total
 
-    # ── Sync: QuestDB bars → Lakehouse bars_daily table ────────────────────
+    # ── Sync: QuestDB bars → Iceberg bars_daily table ──────────────────────
 
     def sync_bars(self, backend: TSDBBackend, interval: str = "1d") -> int:
         """
-        Sync OHLCV bars from a TSDBBackend to Lakehouse bars_daily table.
+        Sync OHLCV bars from a TSDBBackend to Iceberg bars_daily table.
 
         This does a full refresh of bars (not incremental) since bar
         aggregation may update existing buckets as new ticks arrive.
@@ -107,6 +168,7 @@ class SyncEngine:
         Returns:
             Number of bars synced.
         """
+        table = self._catalog.load_table((self._namespace, "bars_daily"))
         total = 0
 
         for tick_type in ("equity", "fx", "curve"):
@@ -119,7 +181,7 @@ class SyncEngine:
                 continue
 
             arrow_table = _bars_to_arrow(bars, tick_type, interval)
-            self._lakehouse.ingest("bars_daily", arrow_table, mode="append")
+            table.append(arrow_table)
             total += len(bars)
 
         if total > 0:
@@ -132,15 +194,16 @@ class SyncEngine:
 
     # ── Full sync (convenience) ─────────────────────────────────────────────
 
-    def sync_all(self, backend: TSDBBackend | None = None) -> dict:
+    def sync_all(self, pg_conn: psycopg2.extensions.connection | None = None, backend: TSDBBackend | None = None) -> dict:
         """
         Run all available sync operations.
 
-        Returns dict with counts: {ticks, bars}.
-
-        Note: Store events are synced separately via EventBridge + LakehouseSink.
+        Returns dict with counts: {events, ticks, bars}.
         """
-        result = {"ticks": 0, "bars": 0}
+        result = {"events": 0, "ticks": 0, "bars": 0}
+
+        if pg_conn:
+            result["events"] = self.sync_events(pg_conn)
 
         if backend:
             result["ticks"] = self.sync_ticks(backend)
@@ -167,10 +230,82 @@ class SyncEngine:
 # ── Arrow conversion helpers ────────────────────────────────────────────────
 
 
+def _pg_rows_to_events_arrow(rows: list[tuple]) -> pa.Table:
+    """Convert PG object_events rows to Arrow table matching EVENTS_SCHEMA."""
+    event_ids = []
+    entity_ids = []
+    versions = []
+    type_names = []
+    owners = []
+    updated_bys = []
+    datas = []
+    states = []
+    event_types = []
+    event_metas = []
+    tx_times = []
+    valid_froms = []
+    valid_tos = []
+
+    for row in rows:
+        (event_id, entity_id, version, type_name, owner,
+         updated_by, data, state, event_type, event_meta,
+         tx_time, valid_from, valid_to) = row
+
+        event_ids.append(str(event_id) if event_id else None)
+        entity_ids.append(str(entity_id) if entity_id else None)
+        versions.append(version)
+        type_names.append(type_name)
+        owners.append(owner)
+        updated_bys.append(updated_by)
+        datas.append(json.dumps(data) if isinstance(data, dict) else str(data) if data else None)
+        states.append(state)
+        event_types.append(event_type)
+        event_metas.append(
+            json.dumps(event_meta) if isinstance(event_meta, dict) else str(event_meta) if event_meta else None
+        )
+        tx_times.append(_ensure_tz(tx_time))
+        valid_froms.append(_ensure_tz(valid_from))
+        valid_tos.append(_ensure_tz(valid_to))
+
+    # Build schema matching EVENTS_SCHEMA required/optional fields
+    arrow_schema = pa.schema([
+        pa.field("event_id", pa.string(), nullable=False),
+        pa.field("entity_id", pa.string(), nullable=False),
+        pa.field("version", pa.int32(), nullable=False),
+        pa.field("type_name", pa.string(), nullable=False),
+        pa.field("owner", pa.string(), nullable=True),
+        pa.field("updated_by", pa.string(), nullable=True),
+        pa.field("data", pa.string(), nullable=True),
+        pa.field("state", pa.string(), nullable=True),
+        pa.field("event_type", pa.string(), nullable=False),
+        pa.field("event_meta", pa.string(), nullable=True),
+        pa.field("tx_time", pa.timestamp("us", tz="UTC"), nullable=False),
+        pa.field("valid_from", pa.timestamp("us", tz="UTC"), nullable=False),
+        pa.field("valid_to", pa.timestamp("us", tz="UTC"), nullable=True),
+    ])
+
+    return pa.table({
+        "event_id": event_ids,
+        "entity_id": entity_ids,
+        "version": versions,
+        "type_name": type_names,
+        "owner": owners,
+        "updated_by": updated_bys,
+        "data": datas,
+        "state": states,
+        "event_type": event_types,
+        "event_meta": event_metas,
+        "tx_time": tx_times,
+        "valid_from": valid_froms,
+        "valid_to": valid_tos,
+    }, schema=arrow_schema)
+
+
 def _tick_rows_to_arrow(tick_type: str, rows: list[dict]) -> pa.Table:
-    """Convert QuestDB tick rows to unified Arrow table."""
+    """Convert QuestDB tick rows to unified Arrow table matching TICKS_SCHEMA."""
     n = len(rows)
 
+    # Build schema matching TICKS_SCHEMA required/optional fields
     arrow_schema = pa.schema([
         pa.field("tick_type", pa.string(), nullable=False),
         pa.field("symbol", pa.string(), nullable=False),
@@ -210,7 +345,7 @@ def _tick_rows_to_arrow(tick_type: str, rows: list[dict]) -> pa.Table:
 
 
 def _bars_to_arrow(bars: list, tick_type: str, interval: str) -> pa.Table:
-    """Convert bar objects/dicts to Arrow table."""
+    """Convert bar objects/dicts to Arrow table matching BARS_SCHEMA."""
     n = len(bars)
 
     def _get(bar: Any, key: str) -> Any:
@@ -249,4 +384,4 @@ def _ensure_tz(dt: datetime | None) -> datetime | None:
         if dt.tzinfo is None:
             return dt.replace(tzinfo=timezone.utc)
         return dt
-    return None  # type: ignore[unreachable]
+    return None

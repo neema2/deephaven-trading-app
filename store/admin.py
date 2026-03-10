@@ -16,6 +16,5 @@ User code uses ``store.connect("demo", user="alice", password="pw")``.
 """
 
 from store.server import StoreServer
-from store.subscriptions import EventBus, SubscriptionListener
 
-__all__ = ["EventBus", "StoreServer", "SubscriptionListener"]
+__all__ = ["StoreServer"]

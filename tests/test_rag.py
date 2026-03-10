@@ -19,26 +19,46 @@ requires_gemini = pytest.mark.skipif(not GEMINI_API_KEY, reason="GEMINI_API_KEY 
 
 
 @pytest.fixture(scope="module")
-def _rag_server(store_server):
-    """Delegate to session-scoped store_server, add RAG-specific bootstrap."""
-    from media.models import bootstrap_chunks_schema, bootstrap_search_schema
-    store_server.provision_user("rag_user", "rag_pw")
+def pg_server():
+    import tempfile
 
-    conn = store_server.admin_conn()
+    from media.models import bootstrap_chunks_schema, bootstrap_search_schema
+    from store.server import StoreServer
+    server = StoreServer(data_dir=tempfile.mkdtemp(prefix="test_rag_"))
+    server.start()
+    server.provision_user("rag_user", "rag_pw")
+
+    conn = server.admin_conn()
     bootstrap_search_schema(conn, embedding_dim=768)
     conn.close()
 
-    conn = store_server.admin_conn()
+    conn = server.admin_conn()
     bootstrap_chunks_schema(conn, embedding_dim=768)
     conn.close()
 
-    return store_server
+    yield server
+    server.stop()
 
 
 @pytest.fixture(scope="module")
-def store_conn(_rag_server):
+def s3_server():
+    import tempfile
+
+    import objectstore
+    loop = asyncio.new_event_loop()
+    store = loop.run_until_complete(objectstore.configure(
+        "minio",
+        data_dir=tempfile.mkdtemp(prefix="test_rag_s3_"),
+        api_port=9042, console_port=9043,
+    ))
+    yield store
+    # atexit handles cleanup
+
+
+@pytest.fixture(scope="module")
+def store_conn(pg_server):
     from store.connection import connect
-    info = _rag_server.conn_info()
+    info = pg_server.conn_info()
     conn = connect(user="rag_user", host=info["host"], port=info["port"],
                    dbname=info["dbname"], password="rag_pw")
     yield conn
@@ -46,20 +66,20 @@ def store_conn(_rag_server):
 
 
 @pytest.fixture(scope="module")
-def media_store(media_server, store_conn):
+def media_store(s3_server, store_conn):
     if not GEMINI_API_KEY:
         pytest.skip("GEMINI_API_KEY not set")
 
-    from ai import AI
+    from ai._embeddings import GeminiEmbeddings
     from media import MediaStore
 
-    ai_client = AI(api_key=GEMINI_API_KEY, embedding_dim=768)
+    embedder = GeminiEmbeddings(api_key=GEMINI_API_KEY, dimension=768)
     ms = MediaStore(
-        s3_endpoint="localhost:9102",
+        s3_endpoint="localhost:9042",
         s3_access_key="minioadmin",
         s3_secret_key="minioadmin",
         s3_bucket="test-rag",
-        ai=ai_client,
+        embedding_provider=embedder,
     )
 
     # Upload documents with real content
@@ -97,7 +117,7 @@ def media_store(media_server, store_conn):
 
 @pytest.fixture(scope="module")
 def rag(media_store):
-    from ai._gemini import GeminiLLM
+    from ai._llm import GeminiLLM
     llm = GeminiLLM(api_key=GEMINI_API_KEY)
     return RAGPipeline(llm=llm, media_store=media_store, search_mode="hybrid")
 
@@ -153,7 +173,7 @@ class TestRAGPipeline:
 
     def test_rag_semantic_mode(self, media_store):
         """RAG with semantic-only search mode."""
-        from ai._gemini import GeminiLLM
+        from ai._llm import GeminiLLM
         llm = GeminiLLM(api_key=GEMINI_API_KEY)
         rag = RAGPipeline(llm=llm, media_store=media_store, search_mode="semantic")
         result = rag.ask("How do derivatives transfer risk?")

@@ -26,9 +26,9 @@ Usage::
 from __future__ import annotations
 
 import logging
+import struct
 import threading
-from collections.abc import Generator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import duckdb
 import pyarrow as pa
@@ -370,7 +370,7 @@ class RLSFlightServer(flight.FlightServerBase):
         raise flight.FlightInternalError("Only CMD descriptors are supported")
 
     def list_flights(self, context: flight.ServerCallContext,
-                     criteria: bytes) -> Generator[flight.FlightInfo, None, None]:
+                     criteria: bytes) -> list:
         """List available tables as FlightInfo entries."""
         with self._lock:
             try:
@@ -388,7 +388,7 @@ class RLSFlightServer(flight.FlightServerBase):
         for catalog, schema, table_name in rows:
             fqn = f"{catalog}.{schema}.{table_name}" if catalog else f"{schema}.{table_name}"
             descriptor = flight.FlightDescriptor.for_command(
-                f"SELECT * FROM {fqn}".encode()
+                f"SELECT * FROM {fqn}".encode("utf-8")
             )
             # Minimal FlightInfo — schema discovery on demand
             info = flight.FlightInfo(
@@ -401,7 +401,7 @@ class RLSFlightServer(flight.FlightServerBase):
             yield info
 
     def do_action(self, context: flight.ServerCallContext,
-                  action: flight.Action) -> Generator[flight.Result, None, None]:
+                  action: flight.Action) -> list:
         """Handle custom actions.
 
         Supported actions:

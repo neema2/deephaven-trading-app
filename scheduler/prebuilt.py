@@ -13,16 +13,16 @@ from scheduler.models import Schedule, Task
 
 
 def make_sync_schedule(cron_expr: str = "*/5 * * * *") -> Schedule:
-    """ETL: QuestDB ticks → Iceberg.
+    """ETL: PG events + QuestDB ticks → Iceberg.
 
-    Store events are synced via EventBridge + LakehouseSink.
     Task functions must be importable at the configured paths.
     """
     return Schedule(
         name="sync",
         cron_expr=cron_expr,
-        description="Incremental ETL from QuestDB to Iceberg",
+        description="Incremental ETL from PG + QuestDB to Iceberg",
         tasks=[
+            Task(name="sync_events", fn="lakehouse.sync:SyncEngine.sync_events"),
             Task(name="sync_ticks", fn="lakehouse.sync:SyncEngine.sync_ticks"),
         ],
     )

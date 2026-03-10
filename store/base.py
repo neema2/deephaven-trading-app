@@ -23,13 +23,13 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, ClassVar
 
-from reaktiv import Computed, Effect, Signal, batch
-from reaktiv.signal import ComputeSignal as _ComputeSignal
 from workflow.engine import WorkflowEngine
 
-from store._active_record import ActiveRecordMixin
 from store.registry import ColumnRegistry
 from store.state_machine import StateMachine
+
+from reaktiv import Computed, Effect, Signal, batch
+from reaktiv.signal import ComputeSignal as _ComputeSignal
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ def _json_decoder_hook(d: dict) -> Any:
     return d
 
 
-class Storable(ActiveRecordMixin):
+class Storable:
     """
     Base class for objects stored in the bi-temporal event-sourced object store.
 
@@ -84,12 +84,11 @@ class Storable(ActiveRecordMixin):
             price: float
             side: str
 
-    Then persist with Active Record methods:
+    Then use StoreClient to persist:
 
-        trade = Trade(symbol="AAPL", quantity=100, price=228.0, side="BUY")
-        trade.save()
+        client.write(Trade(symbol="AAPL", quantity=100, price=228.0, side="BUY"))
 
-    Every save/update creates an immutable event with bi-temporal timestamps.
+    Every write/update creates an immutable event with bi-temporal timestamps.
     """
 
     # Bi-temporal metadata — set by the store after writing / reading
@@ -102,52 +101,6 @@ class Storable(ActiveRecordMixin):
     _store_valid_to: datetime | None = None
     _store_state: str | None = None
     _store_event_type: str | None = None
-
-    # ── Public read-only accessors for store metadata ──────────────────
-    @property
-    def entity_id(self) -> str | None:
-        """Stable identity across versions."""
-        return self._store_entity_id
-
-    @property
-    def version(self) -> int | None:
-        """Monotonic version number per entity."""
-        return self._store_version
-
-    @property
-    def owner(self) -> str | None:
-        """User who created this entity."""
-        return self._store_owner
-
-    @property
-    def updated_by(self) -> str | None:
-        """User who last updated this entity."""
-        return self._store_updated_by
-
-    @property
-    def tx_time(self) -> datetime | None:
-        """Transaction timestamp — when the write was committed."""
-        return self._store_tx_time
-
-    @property
-    def valid_from(self) -> datetime | None:
-        """Business-time start of this version's validity."""
-        return self._store_valid_from
-
-    @property
-    def valid_to(self) -> datetime | None:
-        """Business-time end of this version's validity."""
-        return self._store_valid_to
-
-    @property
-    def state(self) -> str | None:
-        """Lifecycle state (if a state machine is registered)."""
-        return self._store_state
-
-    @property
-    def event_type(self) -> str | None:
-        """Event type of the last write (INSERT, UPDATE, DELETE, etc.)."""
-        return self._store_event_type
 
     # Optional state machine — set on the class by the user
     _state_machine: ClassVar[type[StateMachine] | None] = None
@@ -312,7 +265,7 @@ class Storable(ActiveRecordMixin):
     def to_json(self) -> str:
         """Serialize this object to a JSON string for JSONB storage."""
         if dataclasses.is_dataclass(self):
-            data = dataclasses.asdict(self)  # type: ignore[unreachable]
+            data = dataclasses.asdict(self)
         else:
             data = {
                 k: v for k, v in self.__dict__.items()
@@ -326,7 +279,7 @@ class Storable(ActiveRecordMixin):
         data = json.loads(json_str, object_hook=_json_decoder_hook)
         if dataclasses.is_dataclass(cls):
             # Filter to only fields the dataclass expects
-            field_names = {f.name for f in dataclasses.fields(cls)}  # type: ignore[unreachable]
+            field_names = {f.name for f in dataclasses.fields(cls)}
             filtered = {k: v for k, v in data.items() if k in field_names}
             return cls(**filtered)
         else:
@@ -339,7 +292,119 @@ class Storable(ActiveRecordMixin):
         """The type identifier stored in the database."""
         return f"{cls.__module__}.{cls.__qualname__}"
 
+    # ── Active Record API ─────────────────────────────────────────────
 
+    @staticmethod
+    def _get_client() -> Any:
+        """Return the StoreClient from the active UserConnection."""
+        from store.connection import get_connection
+        return get_connection()._client
+
+    @staticmethod
+    def _get_conn() -> Any:
+        """Return the raw psycopg2 connection from the active UserConnection."""
+        from store.connection import get_connection
+        return get_connection().conn
+
+    def save(self, valid_from: Any = None) -> str:
+        """Persist this object: create if new, update if existing.
+
+        Returns entity_id on first save.
+        """
+        client = self._get_client()
+        if self._store_entity_id is None:
+            return client.write(self, valid_from=valid_from)
+        else:
+            client.update(self, valid_from=valid_from)
+            return self._store_entity_id
+
+    def delete(self) -> bool:
+        """Soft-delete this object (DELETED tombstone)."""
+        client = self._get_client()
+        return client.delete(self)
+
+    def transition(self, new_state: str, valid_from: Any = None) -> None:
+        """Transition to a new lifecycle state."""
+        client = self._get_client()
+        client.transition(self, new_state, valid_from=valid_from)
+
+    def refresh(self) -> None:
+        """Reload this object's data from the store (latest version)."""
+        if not self._store_entity_id:
+            raise ValueError("Object has no entity_id — save() it first")
+        client = self._get_client()
+        fresh = client.read(type(self), self._store_entity_id)
+        if fresh is None:
+            raise ValueError(
+                f"Entity {self._store_entity_id} not found or deleted"
+            )
+        # Copy all data fields — use setattr so reactive Signals update
+        if dataclasses.is_dataclass(self):
+            for f in dataclasses.fields(self):
+                setattr(self, f.name, getattr(fresh, f.name))
+        # Copy store metadata
+        for attr in ('_store_entity_id', '_store_version', '_store_owner',
+                     '_store_updated_by', '_store_tx_time', '_store_valid_from',
+                     '_store_valid_to', '_store_state', '_store_event_type'):
+            object.__setattr__(self, attr, getattr(fresh, attr))
+
+    def history(self) -> list:
+        """Return all versions of this entity."""
+        if not self._store_entity_id:
+            raise ValueError("Object has no entity_id — save() it first")
+        client = self._get_client()
+        return client.history(type(self), self._store_entity_id)
+
+    def audit(self) -> list[dict]:
+        """Return the full audit trail for this entity."""
+        if not self._store_entity_id:
+            raise ValueError("Object has no entity_id — save() it first")
+        client = self._get_client()
+        return client.audit(self._store_entity_id)
+
+    def share(self, user: str, mode: str = "read") -> bool:
+        """Grant access to another user. mode='read' or 'write'."""
+        if not self._store_entity_id:
+            raise ValueError("Object has no entity_id — save() it first")
+        from store.permissions import share_read, share_write
+        conn = self._get_conn()
+        if mode == "write":
+            return share_write(conn, self._store_entity_id, user)
+        return share_read(conn, self._store_entity_id, user)
+
+    def unshare(self, user: str, mode: str = "read") -> bool:
+        """Revoke access from another user. mode='read' or 'write'."""
+        if not self._store_entity_id:
+            raise ValueError("Object has no entity_id — save() it first")
+        from store.permissions import unshare_read, unshare_write
+        conn = self._get_conn()
+        if mode == "write":
+            return unshare_write(conn, self._store_entity_id, user)
+        return unshare_read(conn, self._store_entity_id, user)
+
+    @classmethod
+    def find(cls, entity_id: str) -> Any:
+        """Read the latest non-deleted version of an entity by ID."""
+        client = cls._get_client()
+        return client.read(cls, entity_id)
+
+    @classmethod
+    def query(cls, filters: dict | None = None, limit: int = 100, cursor: Any = None) -> Any:
+        """Query current entities of this type with optional filters."""
+        client = cls._get_client()
+        return client.query(cls, filters=filters, limit=limit, cursor=cursor)
+
+    @classmethod
+    def count(cls) -> int:
+        """Count current (latest non-deleted) entities of this type."""
+        client = cls._get_client()
+        return client.count(cls)
+
+    @classmethod
+    def as_of(cls, entity_id: str, *, tx_time: Any = None, valid_time: Any = None) -> Any:
+        """Bi-temporal point-in-time query."""
+        client = cls._get_client()
+        return client.as_of(cls, entity_id, tx_time=tx_time, valid_time=valid_time)
 
 
 class Embedded(Storable):

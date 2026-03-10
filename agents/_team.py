@@ -20,7 +20,7 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
-from ai import Agent, AgentTeam, TeamResult
+from ai import Agent, AgentTeam
 
 from agents._context import _PlatformContext
 
@@ -188,7 +188,7 @@ class PlatformAgents:
 
     # ── Team-level operations ────────────────────────────────────
 
-    def run(self, prompt: str) -> TeamResult:
+    def run(self, prompt: str) -> object:
         """Run a data engineering task.
 
         The router LLM decomposes the task and delegates to specialist agents.

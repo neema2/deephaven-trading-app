@@ -24,10 +24,12 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ai import Agent, tool
-from lakehouse import Lakehouse
+
+if TYPE_CHECKING:
+    from lakehouse import Lakehouse
 
 from agents._context import _PlatformContext
 
@@ -114,7 +116,7 @@ def create_lakehouse_tools(ctx: _PlatformContext) -> list:
             source_fields_json: Optional JSON array of source field names and types for more precise design.
         """
         if ctx.ai is None:
-            return json.dumps({"error": "No AI configured in _PlatformContext"})  # type: ignore[unreachable]
+            return json.dumps({"error": "No AI configured in _PlatformContext"})
 
         fields_context = ""
         if source_fields_json:
@@ -156,7 +158,7 @@ Return a JSON object with:
 Only return valid JSON."""
 
         try:
-            from ai import Message
+            from ai._types import Message
             response = ctx.ai.generate(
                 [Message(role="user", content=prompt)],
                 temperature=0.3,

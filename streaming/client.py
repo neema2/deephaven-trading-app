@@ -41,7 +41,7 @@ class StreamingClient:
         resolved = self._resolve(alias_or_host, host, port)
         self.host = resolved.get("host", "localhost")
         self.port = resolved.get("port", 10000)
-        self._session = Session(host=self.host, port=self.port)
+        self.session = Session(host=self.host, port=self.port)
         print(f"Connected to streaming server at {self.host}:{self.port}")
 
     @staticmethod
@@ -67,25 +67,25 @@ class StreamingClient:
 
     def list_tables(self) -> Any:
         """Return names of all tables in the server's global scope."""
-        return self._session.tables
+        return self.session.tables
 
     def open_table(self, name: str) -> Any:
         """Open a server-side table by name."""
-        return self._session.open_table(name)
+        return self.session.open_table(name)
 
     def run_script(self, script: str) -> None:
         """Execute a Python script on the server. Use this to create
         custom derived tables that live server-side."""
-        self._session.run_script(script)
+        self.session.run_script(script)
 
     def bind_table(self, name: str, table: Any) -> None:
         """Publish a client-created table to the server's global scope
         so it is visible in the web IDE and to other sessions."""
-        self._session.bind_table(name=name, table=table)
+        self.session.bind_table(name=name, table=table)
 
     def close(self) -> None:
         """Close the session."""
-        self._session.close()
+        self.session.close()
         print("Session closed.")
 
     def __enter__(self) -> StreamingClient:

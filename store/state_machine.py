@@ -109,7 +109,7 @@ class StateMachine:
     """
 
     initial: str | None = None
-    transitions: ClassVar[list[Transition]] = []
+    transitions: ClassVar[list] = []
 
     @classmethod
     def get_transition(cls, from_state: str, to_state: str) -> Transition | None:

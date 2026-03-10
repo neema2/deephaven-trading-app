@@ -76,8 +76,8 @@ def _print_rows(rows: list[dict], max_rows: int = 20) -> None:
 # ── Main Demo ─────────────────────────────────────────────────────────────
 
 async def run_demo(args: argparse.Namespace) -> None:
-    from lakehouse import Lakehouse
     from lakehouse.admin import LakehouseServer, RLSPolicy
+    from lakehouse import Lakehouse
 
     # ── Step 1: Start the Lakehouse Stack with RLS ──
     _banner("Step 1: Starting Lakehouse Stack with RLS")
@@ -153,11 +153,11 @@ async def run_demo(args: argparse.Namespace) -> None:
 
         # ── Summary ──
         _banner("Summary")
-        print("  • trades (open):      5 rows visible to all users")
+        print(f"  • trades (open):      5 rows visible to all users")
         print(f"  • sales_data (RLS):   Alice sees {len(alice_sales)} rows, Bob sees {len(bob_sales)} rows")
-        print("  • Charlie's row (6):  invisible to both (no ACL entry)")
-        print("  • Open tables:        zero Flight overhead (direct DuckDB)")
-        print("  • Protected tables:   routed through Flight SQL + ACL joins")
+        print(f"  • Charlie's row (6):  invisible to both (no ACL entry)")
+        print(f"  • Open tables:        zero Flight overhead (direct DuckDB)")
+        print(f"  • Protected tables:   routed through Flight SQL + ACL joins")
         print()
 
     finally:

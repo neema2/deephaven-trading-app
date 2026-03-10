@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
 
 
 @dataclass
@@ -79,28 +78,3 @@ class Tool:
     description: str
     parameters: dict            # JSON Schema for arguments
     fn: Callable[..., str]      # Execute function → returns JSON string
-
-
-@runtime_checkable
-class DocumentStore(Protocol):
-    """Protocol for document storage backends used by RAG and search tools.
-
-    MediaStore satisfies this interface. Any object implementing these
-    methods can be used with AI.ask() and AI.search_tools().
-    """
-
-    def search(self, query: str, *, content_type: str | None = None, limit: int = 10) -> list[dict]:
-        """Full-text keyword search over documents."""
-        ...
-
-    def semantic_search(self, query: str, *, limit: int = 10) -> list[dict]:
-        """Semantic similarity search over document chunks."""
-        ...
-
-    def hybrid_search(self, query: str, *, limit: int = 10) -> list[dict]:
-        """Combined keyword + semantic search."""
-        ...
-
-    def list(self, *, content_type: str | None = None, limit: int = 20) -> list:
-        """List documents, optionally filtered by content type."""
-        ...

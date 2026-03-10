@@ -66,9 +66,7 @@ class QuestDBBackend(TSDBBackend):
         if self._auto_start:
             await self._manager.start()
         self._reader.connect()
-        conn = self._reader.connection
-        if conn is not None:
-            create_tables(conn, ttl_days=self._ttl_days)
+        create_tables(self._reader.connection, ttl_days=self._ttl_days)
         self._writer.connect()
         logger.info("QuestDBBackend started")
 

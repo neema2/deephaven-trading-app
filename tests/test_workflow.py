@@ -4,7 +4,7 @@ Tests for the workflow orchestration layer.
 Covers:
 - WorkflowEngine ABC contract
 - DBOSEngine: lifecycle, workflows, steps, queues, send/recv, status
-- Integration with UserConnection (durable multi-step mutations)
+- Integration with StoreClient (durable multi-step mutations)
 """
 
 import tempfile
@@ -13,8 +13,8 @@ from dataclasses import dataclass
 
 import pytest
 from store.base import Storable
-from store.connection import UserConnection
-from store.state_machine import StateMachine, Transition
+from store.client import StoreClient
+from store.server import StoreServer
 from workflow.engine import WorkflowEngine, WorkflowHandle, WorkflowStatus
 from workflow.factory import create_engine
 
@@ -23,7 +23,7 @@ from workflow.factory import create_engine
 # ---------------------------------------------------------------------------
 
 _engine: WorkflowEngine | None = None
-_client: UserConnection | None = None
+_client: StoreClient | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -31,10 +31,18 @@ _client: UserConnection | None = None
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
-def engine(workflow_server):
-    """Create a WorkflowEngine using the session-scoped workflow_server's PG."""
+def server():
+    tmp_dir = tempfile.mkdtemp(prefix="test_workflow_")
+    srv = StoreServer(data_dir=tmp_dir, admin_password="test_admin_pw")
+    srv.start()
+    yield srv
+    srv.stop()
+
+
+@pytest.fixture(scope="module")
+def engine(server):
     global _engine
-    eng = create_engine(workflow_server.pg_url(), name="test-workflow")
+    eng = create_engine(server.pg_url(), name="test-workflow")
     eng.launch()
     _engine = eng
     yield eng
@@ -43,19 +51,19 @@ def engine(workflow_server):
 
 
 @pytest.fixture(scope="module")
-def conn_info(store_server):
-    return store_server.conn_info()
+def conn_info(server):
+    return server.conn_info()
 
 
 @pytest.fixture(scope="module")
-def _provision_users(store_server):
-    store_server.provision_user("wf_alice", "pass_alice")
+def _provision_users(server):
+    server.provision_user("wf_alice", "pass_alice")
 
 
 @pytest.fixture(scope="module")
 def client(conn_info, _provision_users):
     global _client
-    c = UserConnection(
+    c = StoreClient(
         user="wf_alice", password="pass_alice",
         host=conn_info["host"], port=conn_info["port"], dbname=conn_info["dbname"],
     )
@@ -75,21 +83,10 @@ class Counter(Storable):
     value: float = 0
 
 
-class TicketLifecycle(StateMachine):
-    initial = "ACTIVE"
-    transitions = [
-        Transition("ACTIVE", "IN_PROGRESS"),
-        Transition("ACTIVE", "CLOSED"),
-        Transition("IN_PROGRESS", "CLOSED"),
-    ]
-
-
 @dataclass
 class Ticket(Storable):
     title: str = ""
     status: str = "OPEN"
-
-Ticket._state_machine = TicketLifecycle
 
 
 # ---------------------------------------------------------------------------
@@ -101,13 +98,13 @@ class TestWorkflowEngineABC:
 
     def test_abc_not_instantiable(self):
         with pytest.raises(TypeError):
-            WorkflowEngine()  # type: ignore[abstract]
+            WorkflowEngine()
 
     def test_handle_dataclass(self):
         class DummyEngine(WorkflowEngine):
             def workflow(self, fn, *a, **kw): ...
             def step(self, fn, *a, **kw): ...
-            def queue(self, name, fn, *a, **kw): ...  # type: ignore[override]
+            def queue(self, name, fn, *a, **kw): ...
             def sleep(self, s): ...
             def send(self, wid, topic, val): ...
             def recv(self, topic, timeout=None): ...
@@ -150,8 +147,8 @@ class TestWorkflowsAndSteps:
             return x * 2
 
         def my_workflow(val):
-            a = _engine.step(add_one, val)  # type: ignore[union-attr]
-            b = _engine.step(double, a)  # type: ignore[union-attr]
+            a = _engine.step(add_one, val)
+            b = _engine.step(double, a)
             return b
 
         result = engine.run(my_workflow, 5)
@@ -183,8 +180,8 @@ class TestWorkflowsAndSteps:
             return f"{greeting} world"
 
         def pipeline():
-            a = _engine.step(step_a)  # type: ignore[union-attr]
-            b = _engine.step(step_b, a)  # type: ignore[union-attr]
+            a = _engine.step(step_a)
+            b = _engine.step(step_b, a)
             return b
 
         result = engine.run(pipeline)
@@ -192,8 +189,8 @@ class TestWorkflowsAndSteps:
 
     def test_workflow_with_dict_result(self, engine):
         def build_report():
-            count = _engine.step(lambda: 42)  # type: ignore[union-attr]
-            label = _engine.step(lambda: "items")  # type: ignore[union-attr]
+            count = _engine.step(lambda: 42)
+            label = _engine.step(lambda: "items")
             return {"count": count, "label": label}
 
         result = engine.run(build_report)
@@ -207,9 +204,9 @@ class TestWorkflowsAndSteps:
             return val
 
         def ordered_workflow():
-            _engine.step(append_step, "first")  # type: ignore[union-attr]
-            _engine.step(append_step, "second")  # type: ignore[union-attr]
-            _engine.step(append_step, "third")  # type: ignore[union-attr]
+            _engine.step(append_step, "first")
+            _engine.step(append_step, "second")
+            _engine.step(append_step, "third")
             return log.copy()
 
         result = engine.run(ordered_workflow)
@@ -248,7 +245,7 @@ class TestSendRecv:
 
     def test_send_recv(self, engine):
         def waiter_workflow():
-            msg = _engine.recv("test-topic", timeout=10)  # type: ignore[union-attr]
+            msg = _engine.recv("test-topic", timeout=10)
             return msg
 
         handle = engine.workflow(waiter_workflow)
@@ -261,7 +258,7 @@ class TestSendRecv:
 
     def test_recv_timeout_returns_none(self, engine):
         def timeout_workflow():
-            return _engine.recv("no-one-sends", timeout=1)  # type: ignore[union-attr]
+            return _engine.recv("no-one-sends", timeout=1)
 
         handle = engine.workflow(timeout_workflow)
         result = handle.get_result(timeout=5)
@@ -269,7 +266,7 @@ class TestSendRecv:
 
 
 # ---------------------------------------------------------------------------
-# UserConnection integration
+# StoreClient integration
 # ---------------------------------------------------------------------------
 
 class TestStoreIntegration:
@@ -278,81 +275,42 @@ class TestStoreIntegration:
     def test_multi_step_store_workflow(self, engine, client):
         def create_counter(name, initial):
             c = Counter(name=name, value=initial)
-            c.save()  # type: ignore[union-attr]
-            return c.entity_id
+            _client.write(c)
+            return c._store_entity_id
 
         def increment_counter(entity_id, amount):
-            c = Counter.find(entity_id)  # type: ignore[union-attr]
-            c.value += amount  # type: ignore[union-attr]
-            c.save()  # type: ignore[union-attr]
-            return c.value  # type: ignore[union-attr]
+            c = _client.read(Counter, entity_id)
+            c.value += amount
+            _client.update(c)
+            return c.value
 
         def create_and_increment():
-            eid = _engine.step(create_counter, "hits", 0)  # type: ignore[union-attr]
-            _v1 = _engine.step(increment_counter, eid, 10)  # type: ignore[union-attr]
-            v2 = _engine.step(increment_counter, eid, 5)  # type: ignore[union-attr]
+            eid = _engine.step(create_counter, "hits", 0)
+            _v1 = _engine.step(increment_counter, eid, 10)
+            v2 = _engine.step(increment_counter, eid, 5)
             return {"entity_id": eid, "final_value": v2}
 
         result = engine.run(create_and_increment)
         assert result["final_value"] == 15
 
         # Verify in store
-        obj = Counter.get(result["entity_id"])
+        obj = client.read(Counter, result["entity_id"])
         assert obj.value == 15
         assert obj.name == "hits"
 
     def test_workflow_with_error_in_step(self, engine, client):
         def create_ticket():
             t = Ticket(title="Bug report")
-            t.save()  # type: ignore[union-attr]
-            return t.entity_id
+            _client.write(t)
+            return t._store_entity_id
 
         def failing_step():
             raise ValueError("intentional failure")
 
         def flawed_workflow():
-            eid = _engine.step(create_ticket)  # type: ignore[union-attr]
-            _engine.step(failing_step)  # type: ignore[union-attr]  # this will fail
+            eid = _engine.step(create_ticket)
+            _engine.step(failing_step)  # this will fail
             return eid
 
         with pytest.raises(Exception):
             engine.run(flawed_workflow)
-
-
-# ---------------------------------------------------------------------------
-# Durable transition (engine convenience + WorkflowDispatcher)
-# ---------------------------------------------------------------------------
-
-class TestDurableTransition:
-    """engine.durable_transition() and WorkflowDispatcher.durable_transition()."""
-
-    def test_engine_durable_transition(self, engine, client):
-        """engine.durable_transition() transitions state via checkpointed step."""
-        t = Ticket(title="durable_ticket")
-        t.save()
-        t = Ticket.get(t.entity_id)  # type: ignore[arg-type]
-        assert t.state == "ACTIVE"
-
-        def transition_workflow():
-            _engine.durable_transition(t, "CLOSED")  # type: ignore[union-attr]
-
-        engine.run(transition_workflow)
-        refreshed = Ticket.get(t.entity_id)  # type: ignore[arg-type]
-        assert refreshed.state == "CLOSED"
-
-    def test_dispatcher_durable_transition(self, engine, client):
-        """WorkflowDispatcher wraps transition in a checkpointed step."""
-        from workflow.dispatcher import WorkflowDispatcher
-
-        dispatcher = WorkflowDispatcher(engine)
-        t = Ticket(title="dispatch_ticket")
-        t.save()
-        t = Ticket.get(t.entity_id)  # type: ignore[arg-type]
-        assert t.state == "ACTIVE"
-
-        def dispatch_workflow():
-            dispatcher.durable_transition(t, "CLOSED")
-
-        engine.run(dispatch_workflow)
-        refreshed = Ticket.get(t.entity_id)  # type: ignore[arg-type]
-        assert refreshed.state == "CLOSED"

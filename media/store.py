@@ -12,10 +12,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ai.client import AI
 from objectstore import S3Client
+
+if TYPE_CHECKING:
+    from ai._embeddings import EmbeddingProvider
+    from ai.client import AI
 
 from media.chunking import chunk_text
 from media.extraction import detect_content_type, extract_text
@@ -64,6 +67,7 @@ class MediaStore:
         alias_or_endpoint: str | None = None,
         *,
         ai: AI | None = None,
+        embedding_provider: EmbeddingProvider | None = None,
         data_dir: str | None = None,
         # Private — backward compat / tests
         _s3_endpoint: str | None = None,
@@ -98,7 +102,12 @@ class MediaStore:
         )
         self._s3.ensure_bucket()
         self._bucket = bucket
-        self._embedder = ai.embedder if ai is not None else None
+        # ai= is the public API; embedding_provider= is internal/backward-compat
+        self._embedder: EmbeddingProvider | None
+        if ai is not None:
+            self._embedder = ai.embedder
+        else:
+            self._embedder = embedding_provider
 
     def _resolve_connection(self, alias_or_endpoint: str | None, data_dir: str | None,
                             s3_endpoint: str | None, s3_access_key: str | None,
@@ -210,7 +219,7 @@ class MediaStore:
         doc.save()
 
         # Build S3 key and upload
-        s3_key = f"media/{doc.entity_id}/{filename}"
+        s3_key = f"media/{doc._store_entity_id}/{filename}"
         self._s3.upload(s3_key, data, content_type)
         doc.s3_key = s3_key
         doc.save()  # update with S3 key
@@ -245,7 +254,7 @@ class MediaStore:
         assert isinstance(doc, Document)
 
         if not doc.s3_key:
-            raise ValueError(f"Document {doc.entity_id} has no S3 key")
+            raise ValueError(f"Document {doc._store_entity_id} has no S3 key")
 
         return self._s3.download(doc.s3_key)
 
@@ -292,8 +301,8 @@ class MediaStore:
         Returns:
             List of dicts with entity_id, title, filename, content_type, tags, rank.
         """
-        from store import active_connection
-        conn = active_connection()
+        from store.connection import get_connection
+        conn = get_connection()
         return search_documents(conn.conn, query, content_type, tags, limit)
 
     def semantic_search(
@@ -320,14 +329,14 @@ class MediaStore:
         """
         if not self._embedder:
             raise ValueError(
-                "semantic_search requires an AI instance with embeddings. "
-                "Pass ai= to MediaStore constructor."
+                "semantic_search requires an embedding_provider. "
+                "Pass embedding_provider= to MediaStore constructor."
             )
 
         query_embedding = self._embedder.embed_query(query)
 
-        from store import active_connection
-        conn = active_connection()
+        from store.connection import get_connection
+        conn = get_connection()
         return semantic_search_documents(conn.conn, query_embedding, limit)
 
     def hybrid_search(
@@ -361,14 +370,14 @@ class MediaStore:
         """
         if not self._embedder:
             raise ValueError(
-                "hybrid_search requires an AI instance with embeddings. "
-                "Pass ai= to MediaStore constructor."
+                "hybrid_search requires an embedding_provider. "
+                "Pass embedding_provider= to MediaStore constructor."
             )
 
         query_embedding = self._embedder.embed_query(query)
 
-        from store import active_connection
-        conn = active_connection()
+        from store.connection import get_connection
+        conn = get_connection()
         return hybrid_search_documents(
             conn.conn, query, query_embedding,
             limit=limit, k=k,
@@ -419,27 +428,27 @@ class MediaStore:
 
         # Remove from search index
         try:
-            from store import active_connection
-            conn = active_connection()
-            delete_search_index(conn.conn, str(doc.entity_id))
+            from store.connection import get_connection
+            conn = get_connection()
+            delete_search_index(conn.conn, str(doc._store_entity_id))
         except Exception as e:
             logger.warning("Failed to remove search index: %s", e)
 
         # Soft-delete the Storable
         doc.delete()
-        logger.info("Deleted document %s (%s)", doc.entity_id, doc.filename)
+        logger.info("Deleted document %s (%s)", doc._store_entity_id, doc.filename)
 
     # ── Internal ──────────────────────────────────────────────────────────
 
     def _update_search_index(self, doc: Document) -> None:
         """Update the full-text search index for a document."""
         try:
-            from store import active_connection
-            conn = active_connection()
+            from store.connection import get_connection
+            conn = get_connection()
             upsert_search_index(
                 conn.conn,
-                entity_id=str(doc.entity_id),
-                owner=doc.owner or conn.user,
+                entity_id=str(doc._store_entity_id),
+                owner=doc._store_owner or conn.user,
                 readers=getattr(doc, '_store_readers', []) or [],
                 writers=getattr(doc, '_store_writers', []) or [],
                 title=doc.title,
@@ -450,7 +459,7 @@ class MediaStore:
             )
         except Exception as e:
             logger.warning("Failed to update search index for %s: %s",
-                           doc.entity_id, e)
+                           doc._store_entity_id, e)
 
     def _embed_document(self, doc: Document) -> None:
         """Chunk text and generate embeddings for a document."""
@@ -470,9 +479,9 @@ class MediaStore:
             embeddings = self._embedder.embed(chunk_texts)
 
             # Store chunks + embeddings in document_chunks table
-            from store import active_connection
-            conn = active_connection()
-            entity_id = str(doc.entity_id)
+            from store.connection import get_connection
+            conn = get_connection()
+            entity_id = str(doc._store_entity_id)
             upsert_document_chunks(conn.conn, entity_id, chunks, embeddings)
 
             # Store whole-document embedding (title + first chunk)
@@ -484,7 +493,7 @@ class MediaStore:
                          doc.filename, len(chunks), self._embedder.dimension)
         except Exception as e:
             logger.warning("Failed to embed document %s: %s",
-                           doc.entity_id, e)
+                           doc._store_entity_id, e)
 
     def close(self) -> None:
         """Clean up resources. Stops auto-started MediaServer if any."""

@@ -74,7 +74,7 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
             description: Optional description of what this analysis computes.
         """
         if ctx.lakehouse is None:
-            return json.dumps({"error": "No Lakehouse configured."})  # type: ignore[unreachable]
+            return json.dumps({"error": "No Lakehouse configured."})
 
         try:
             df = ctx.lakehouse.query_df(sql)
@@ -117,7 +117,7 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
             columns: Comma-separated column names to analyze. Empty = all numeric columns.
         """
         if ctx.lakehouse is None:
-            return json.dumps({"error": "No Lakehouse configured."})  # type: ignore[unreachable]
+            return json.dumps({"error": "No Lakehouse configured."})
 
         try:
             df = ctx.lakehouse.query_df(sql)
@@ -179,7 +179,7 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
             columns: Comma-separated column names. Empty = all numeric columns.
         """
         if ctx.lakehouse is None:
-            return json.dumps({"error": "No Lakehouse configured."})  # type: ignore[unreachable]
+            return json.dumps({"error": "No Lakehouse configured."})
 
         try:
             df = ctx.lakehouse.query_df(sql)
@@ -237,7 +237,7 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
                        For IQR: multiplier (default 1.5).
         """
         if ctx.lakehouse is None:
-            return json.dumps({"error": "No Lakehouse configured."})  # type: ignore[unreachable]
+            return json.dumps({"error": "No Lakehouse configured."})
 
         try:
             df = ctx.lakehouse.query_df(sql)
@@ -304,7 +304,7 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
             features: Comma-separated feature (independent) variable column names.
         """
         if ctx.lakehouse is None:
-            return json.dumps({"error": "No Lakehouse configured."})  # type: ignore[unreachable]
+            return json.dumps({"error": "No Lakehouse configured."})
 
         try:
             df = ctx.lakehouse.query_df(sql)
@@ -461,10 +461,10 @@ def create_datascience_tools(ctx: _PlatformContext) -> list:
             question: The analytical question being explored.
         """
         if ctx.ai is None:
-            return json.dumps({"error": "No AI configured."})  # type: ignore[unreachable]
+            return json.dumps({"error": "No AI configured."})
 
         try:
-            from ai import Message
+            from ai._types import Message
             prompt = f"""\
 Given this data and question, recommend the best visualization.
 

@@ -36,5 +36,4 @@ def resolve_fn(target_fn: str) -> Callable[..., Any]:
     obj: Any = module
     for attr in qualname.split("."):
         obj = getattr(obj, attr)
-    result: Callable[..., Any] = obj
-    return result
+    return obj

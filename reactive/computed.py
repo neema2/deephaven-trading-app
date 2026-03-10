@@ -98,7 +98,7 @@ class _ASTTranslator(ast.NodeVisitor):
             # Only truly unsupported constructs (validated earlier) raise.
             return None
 
-    def _translate_body(self, stmts: list) -> Expr | None:
+    def _translate_body(self, stmts: list) -> Expr:
         """Translate a list of statements (function body) to an Expr."""
         if len(stmts) == 1:
             stmt = stmts[0]
@@ -119,7 +119,7 @@ class _ASTTranslator(ast.NodeVisitor):
             f"Unsupported multi-statement body starting with {type(first).__name__}"
         )
 
-    def _translate_if_stmt(self, if_node: ast.If, rest: list) -> Expr | None:
+    def _translate_if_stmt(self, if_node: ast.If, rest: list) -> Expr:
         """Translate an if statement to an If Expr.
 
         Pattern: if cond: return X [elif ...] [return Y]
@@ -143,13 +143,9 @@ class _ASTTranslator(ast.NodeVisitor):
                 "if statement in @computed must have an else/return branch"
             )
 
-        if cond is None or then is None or else_expr is None:
-            self.is_cross_entity = True
-            return None
-
         return If(cond, then, else_expr)
 
-    def _translate_expr(self, node: ast.expr | None) -> Expr | None:
+    def _translate_expr(self, node: ast.expr | None) -> Expr:
         """Translate a single AST expression node to an Expr."""
         if node is None:
             return Const(None)
@@ -165,13 +161,13 @@ class _ASTTranslator(ast.NodeVisitor):
                 # Reference to another @computed → cross-entity (proxy-based)
                 # so that computed overrides propagate correctly.
                 self.is_cross_entity = True
-                return None
+                return None  # type: ignore[return-value]
             return Field(name)
 
         # --- p.x (attribute on non-self) — cross-entity ---
         if isinstance(node, ast.Attribute):
             self.is_cross_entity = True
-            return None
+            return None  # type: ignore[return-value]
 
         # --- Binary ops: a + b ---
         if isinstance(node, ast.BinOp):
@@ -184,7 +180,7 @@ class _ASTTranslator(ast.NodeVisitor):
             right = self._translate_expr(node.right)
             if left is None or right is None:
                 self.is_cross_entity = True
-                return None
+                return None  # type: ignore[return-value]
             return BinOp(_BINOP_MAP[op_type], left, right)
 
         # --- Unary ops: -x, not x ---
@@ -193,13 +189,13 @@ class _ASTTranslator(ast.NodeVisitor):
                 operand = self._translate_expr(node.operand)
                 if operand is None:
                     self.is_cross_entity = True
-                    return None
+                    return None  # type: ignore[return-value]
                 return UnaryOp("neg", operand)
             if isinstance(node.op, ast.Not):
                 operand = self._translate_expr(node.operand)
                 if operand is None:
                     self.is_cross_entity = True
-                    return None
+                    return None  # type: ignore[return-value]
                 return UnaryOp("not", operand)
             raise ComputedParseError(
                 f"Unsupported unary operator: {type(node.op).__name__}"
@@ -220,7 +216,7 @@ class _ASTTranslator(ast.NodeVisitor):
             right = self._translate_expr(node.comparators[0])
             if left is None or right is None:
                 self.is_cross_entity = True
-                return None
+                return None  # type: ignore[return-value]
             return BinOp(_CMPOP_MAP[cmp_type], left, right)
 
         # --- Boolean ops: a and b, a or b ---
@@ -235,7 +231,7 @@ class _ASTTranslator(ast.NodeVisitor):
                 right = self._translate_expr(val)
                 if result is None or right is None:
                     self.is_cross_entity = True
-                    return None
+                    return None  # type: ignore[return-value]
                 result = BinOp(op_str, result, right)
             return result
 
@@ -246,7 +242,7 @@ class _ASTTranslator(ast.NodeVisitor):
             else_ = self._translate_expr(node.orelse)
             if cond is None or then is None or else_ is None:
                 self.is_cross_entity = True
-                return None
+                return None  # type: ignore[return-value]
             return If(cond, then, else_)
 
         # --- Function calls: abs(x), round(x, 2), math.sqrt(x) ---
@@ -255,13 +251,13 @@ class _ASTTranslator(ast.NodeVisitor):
             if func_name is None:
                 # Could be sum(), len() etc — cross-entity
                 self.is_cross_entity = True
-                return None
+                return None  # type: ignore[return-value]
             args = []
             for arg in node.args:
                 a = self._translate_expr(arg)
                 if a is None:
                     self.is_cross_entity = True
-                    return None
+                    return None  # type: ignore[return-value]
                 args.append(a)
             if func_name == "abs" and len(args) == 1:
                 return UnaryOp("abs", args[0])
@@ -275,13 +271,13 @@ class _ASTTranslator(ast.NodeVisitor):
                 return Const(builtin_val)
             # Unknown name — cross-entity variable (e.g. loop var)
             self.is_cross_entity = True
-            return None
+            return None  # type: ignore[return-value]
 
         # --- Generator expressions, list comps, etc — cross-entity ---
         if isinstance(node, (ast.GeneratorExp, ast.ListComp, ast.SetComp,
                              ast.DictComp)):
             self.is_cross_entity = True
-            return None
+            return None  # type: ignore[return-value]
 
         # --- Truly unsupported ---
         raise ComputedParseError(
@@ -505,20 +501,15 @@ def _inline_computed_refs(expr: Expr, frame_locals: dict) -> Expr:
     if isinstance(expr, Field):
         name = expr.name
         if name in frame_locals and isinstance(frame_locals[name], ComputedProperty):
-            other: ComputedProperty = frame_locals[name]
-            resolved_expr = other.expr
-            if resolved_expr is not None:
-                return resolved_expr
-        return expr  # type: ignore[return-value]  # Field is subclass of Expr
+            other = frame_locals[name]
+            if other.expr is not None:
+                return other.expr
+        return expr
     if isinstance(expr, BinOp):
-        new_left = _inline_computed_refs(expr.left, frame_locals)
-        new_right = _inline_computed_refs(expr.right, frame_locals)
-        if new_left is None or new_right is None:
-            return expr  # type: ignore[return-value, unreachable]
         return BinOp(
             expr.op,
-            new_left,
-            new_right,
+            _inline_computed_refs(expr.left, frame_locals),
+            _inline_computed_refs(expr.right, frame_locals),
         )
     if isinstance(expr, UnaryOp):
         return UnaryOp(expr.op, _inline_computed_refs(expr.operand, frame_locals))

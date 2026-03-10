@@ -25,6 +25,7 @@ import json
 import logging
 import webbrowser
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import perspective
 import perspective.handlers.tornado
@@ -33,7 +34,8 @@ import tornado.ioloop
 import tornado.web
 import tornado.websocket
 
-from datacube.engine import Datacube
+if TYPE_CHECKING:
+    from datacube.engine import Datacube
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +65,7 @@ def _arrow_to_ipc(table: pa.Table) -> bytes:
     writer = pa.ipc.new_stream(sink, table.schema)
     writer.write_table(table)
     writer.close()
-    return bytes(sink.getvalue().to_pybytes())
+    return sink.getvalue().to_pybytes()
 
 
 # ── State helpers ─────────────────────────────────────────────────

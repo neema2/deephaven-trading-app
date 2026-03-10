@@ -10,8 +10,10 @@ These are used by EvalDimension objects in the framework.
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
-from agents._eval.framework import AgentEvalCase
+if TYPE_CHECKING:
+    from agents._eval.framework import AgentEvalCase
 
 
 def score_naming_conventions(case: AgentEvalCase, artifacts: dict) -> float:
@@ -125,7 +127,7 @@ def score_row_count_preservation(case: AgentEvalCase, artifacts: dict) -> float:
     actual_count = artifacts.get("rows_written", 0)
     if expected_count == 0:
         return 1.0 if actual_count == 0 else 0.0
-    return float(min(actual_count / expected_count, 1.0))
+    return min(actual_count / expected_count, 1.0)
 
 
 def score_star_schema_design(case: AgentEvalCase, artifacts: dict) -> float:

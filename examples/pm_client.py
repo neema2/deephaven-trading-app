@@ -27,7 +27,7 @@ def main(host="localhost", port=10000):
 
         # ── 2. Create server-side P&L tracking table ─────────────────
         client.run_script("""
-from streaming import agg
+from deephaven import agg
 
 # P&L ranked view: best and worst performers
 pnl_ranked = risk_live.sort_descending("UnrealizedPnL")

@@ -22,9 +22,10 @@ import builtins
 import dataclasses
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from store import ColumnDef
+if TYPE_CHECKING:
+    from store.registry import ColumnDef
 
 # ── Constants ──────────────────────────────────────────────────────────
 

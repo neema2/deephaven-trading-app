@@ -1,5 +1,5 @@
 """
-UserConnection — pure connection wrapper for the object store.
+UserConnection — high-level connection API that hides StoreClient.
 
 Users call ``connect()`` with an alias (or explicit params) plus their
 credentials.  The returned ``UserConnection`` becomes the *active*
@@ -15,13 +15,14 @@ connection used by ``Storable.save()``, ``Position.find()``, etc.
 from __future__ import annotations
 
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import psycopg2
-import psycopg2.extensions
-import psycopg2.extras
+from store.client import StoreClient
 
-from store.subscriptions import EventBus
+if TYPE_CHECKING:
+    import psycopg2.extensions
+
+    from store.subscriptions import EventBus
 
 # ── Alias registry ────────────────────────────────────────────────────
 
@@ -40,26 +41,14 @@ def _resolve_alias(name: str) -> dict | None:
         return _aliases.get(name)
 
 
+# ── Active connection (thread-local for safety) ──────────────────────
 
-class _ConnectionLocal(threading.local):
-    """Typed thread-local storage for the active UserConnection."""
-    connection: UserConnection | None
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.connection = None
+_active: threading.local = threading.local()
 
 
-_active = _ConnectionLocal()
-
-
-def active_connection() -> UserConnection:
-    """Return the current thread's active ``UserConnection``, or raise if none is set.
-
-    A connection becomes *active* when created via :func:`connect` or
-    when :meth:`UserConnection.activate` is called explicitly.
-    """
-    conn = _active.connection
+def get_connection() -> UserConnection:
+    """Return the active ``UserConnection`` or raise."""
+    conn = getattr(_active, "connection", None)
     if conn is None:
         raise RuntimeError(
             "No active connection. Call store.connect() first."
@@ -74,10 +63,9 @@ def _set_active(conn: UserConnection | None) -> None:
 # ── UserConnection ────────────────────────────────────────────────────
 
 class UserConnection:
-    """Pure connection wrapper — manages the psycopg2 connection and thread-local context.
+    """Wraps a ``StoreClient`` and acts as the active connection context.
 
-    All SQL persistence logic lives in the ActiveRecordMixin (store/_active_record.py).
-    This class only provides the raw connection, user identity, and event bus.
+    Normally created via :func:`connect` — not instantiated directly.
     """
 
     def __init__(self, *, user: str, password: str,
@@ -86,21 +74,18 @@ class UserConnection:
                  event_bus: EventBus | None = None) -> None:
         self.user = user
         self.alias = alias
-        self.event_bus = event_bus
-        self._conn_params = {
-            "host": host, "port": port, "dbname": dbname,
-            "user": user, "password": password,
-        }
-        self.conn: psycopg2.extensions.connection = psycopg2.connect(
-            host=host,
-            port=port,
-            dbname=dbname,
-            user=user,
-            password=password,
+        self._conn_params = dict(host=host, port=port, dbname=dbname,
+                                 user=user, password=password)
+        self._client = StoreClient(
+            user=user, password=password,
+            host=host, port=port, dbname=dbname,
+            event_bus=event_bus,
         )
-        self.conn.autocommit = True
-        psycopg2.extras.register_uuid()
-        self.activate()
+
+    # Expose the raw psycopg2 connection for permissions helpers
+    @property
+    def conn(self) -> psycopg2.extensions.connection:
+        return self._client.conn
 
     def activate(self) -> None:
         """Make this the active connection for the current thread."""
@@ -108,16 +93,13 @@ class UserConnection:
 
     def deactivate(self) -> None:
         """Remove this connection from the active slot (if it is active)."""
-        if _active.connection is self:
+        if getattr(_active, "connection", None) is self:
             _set_active(None)
 
-    # ── Lifecycle ──────────────────────────────────────────────────
-
     def close(self) -> None:
-        """Close the underlying connection and deactivate."""
+        """Close the underlying StoreClient and deactivate."""
         self.deactivate()
-        if self.conn and not self.conn.closed:
-            self.conn.close()
+        self._client.close()
 
     # Context-manager support
     def __enter__(self) -> UserConnection:
@@ -176,5 +158,5 @@ def connect(alias_or_host: str | None = None, *,
             event_bus=event_bus,
         )
 
-
+    conn.activate()
     return conn

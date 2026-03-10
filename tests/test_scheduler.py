@@ -2,7 +2,7 @@
 Tests for the scheduler package.
 
 Covers:
-- Embedded base class (reactive wiring, Storable.save() guard)
+- Embedded base class (reactive wiring, StoreClient.write() guard)
 - Models: Schedule, Task, Run, TaskResult (serialization, state machines)
 - Cron: next_fire, prev_fire, is_due, validate, describe
 - DAG graph: acyclicity, execution_order, cycle detection
@@ -298,7 +298,6 @@ class TestDAGRunner:
     def test_run_linear(self):
         from scheduler.dag_runner import DAGRunner
         from scheduler.models import Schedule, Task
-
         from tests._sched_fixtures import call_log, reset_log
 
         reset_log()
@@ -307,7 +306,7 @@ class TestDAGRunner:
             Task(name="b", fn=f"{self.FX}:fn_return_b", depends_on=["a"]),
         ])
 
-        runner = DAGRunner(engine=None)  # type: ignore[arg-type]
+        runner = DAGRunner(engine=None, client=None)
         run = runner.run(s)
 
         assert run.task_results["a"].status == "SUCCESS"
@@ -324,7 +323,7 @@ class TestDAGRunner:
             Task(name="c", fn=f"{self.FX}:fn_return_c", depends_on=["a", "b"]),
         ])
 
-        runner = DAGRunner(engine=None)  # type: ignore[arg-type]
+        runner = DAGRunner(engine=None, client=None)
         run = runner.run(s)
 
         assert run.task_results["a"].status == "SUCCESS"
@@ -341,7 +340,7 @@ class TestDAGRunner:
             Task(name="b", fn=f"{self.FX}:fn_never", depends_on=["a"]),
         ])
 
-        runner = DAGRunner(engine=None)  # type: ignore[arg-type]
+        runner = DAGRunner(engine=None, client=None)
         run = runner.run(s)
 
         assert run.task_results["a"].status == "ERROR"
@@ -356,7 +355,7 @@ class TestDAGRunner:
             Task(name="a", fn="nonexistent.module:fn"),
         ])
 
-        runner = DAGRunner(engine=None)  # type: ignore[arg-type]
+        runner = DAGRunner(engine=None, client=None)
         run = runner.run(s)
 
         assert run.task_results["a"].status == "ERROR"
@@ -371,7 +370,7 @@ class TestDAGRunner:
             Task(name="c", fn=f"{self.FX}:fn_return_c"),
         ])
 
-        runner = DAGRunner(engine=None)  # type: ignore[arg-type]
+        runner = DAGRunner(engine=None, client=None)
         run = runner.run(s)
 
         assert "a" in run.task_results
@@ -386,7 +385,7 @@ class TestDAGRunner:
             Task(name="slow", fn=f"{self.FX}:fn_slow"),
         ])
 
-        runner = DAGRunner(engine=None)  # type: ignore[arg-type]
+        runner = DAGRunner(engine=None, client=None)
         run = runner.run(s)
 
         assert run.task_results["slow"].duration_ms >= 40  # at least 40ms
@@ -396,7 +395,7 @@ class TestDAGRunner:
         from scheduler.models import Schedule
 
         s = Schedule(name="empty", tasks=[])
-        runner = DAGRunner(engine=None)  # type: ignore[arg-type]
+        runner = DAGRunner(engine=None, client=None)
         run = runner.run(s)
 
         assert run.result == "empty"
@@ -453,19 +452,23 @@ class TestDecorators:
 
 
 class TestSchedulerIntegration:
-    """Integration tests with real StoreServer + UserConnection."""
+    """Integration tests with real StoreServer + StoreClient."""
 
     @pytest.fixture(scope="class")
-    def store_server(self, store_server):
-        """Delegate to session-scoped store_server from conftest.py."""
-        store_server.provision_user("sched_user", "sched_pw")
-        return store_server
+    def store_server(self):
+        from store.server import StoreServer
+        tmp = tempfile.mkdtemp(prefix="test_scheduler_")
+        srv = StoreServer(data_dir=tmp)
+        srv.start()
+        srv.provision_user("sched_user", "sched_pw")
+        yield srv
+        srv.stop()
 
     @pytest.fixture
     def client(self, store_server):
-        from store.connection import UserConnection
+        from store.client import StoreClient
         info = store_server.conn_info()
-        return UserConnection(
+        return StoreClient(
             host=info["host"],
             port=info["port"],
             dbname=info["dbname"],
@@ -474,11 +477,11 @@ class TestSchedulerIntegration:
         )
 
     def test_embedded_write_guard(self, client):
-        """Storable.save() should refuse Embedded subclasses."""
+        """StoreClient.write() should refuse Embedded subclasses."""
         from scheduler.models import Task
         td = Task(name="test", fn="mod:fn")
         with pytest.raises(TypeError, match="Embedded"):
-            td.save()
+            client.write(td)
 
     def test_schedule_write_read(self, client):
         """Write and read back a Schedule."""
@@ -486,24 +489,24 @@ class TestSchedulerIntegration:
         s = Schedule(name="test_sched", cron_expr="*/5 * * * *", tasks=[
             Task(name="do_it", fn="tests._sched_fixtures:fn_ok"),
         ])
-        entity_id = s.save()
+        entity_id = client.write(s)
         assert entity_id is not None
-        s2 = Schedule.get(entity_id)
+        s2 = client.read(Schedule, entity_id)
         assert s2.name == "test_sched"
-        assert s2.state == "ACTIVE"
+        assert s2._store_state == "ACTIVE"
 
     def test_schedule_pause_resume(self, client):
         """Test Schedule state machine transitions."""
         from scheduler.models import Schedule
         s = Schedule(name="pausable", cron_expr="0 * * * *")
-        s.save()
-        assert s.state == "ACTIVE"
+        client.write(s)
+        assert s._store_state == "ACTIVE"
 
-        s.transition("PAUSED")
-        assert s.state == "PAUSED"
+        client.transition(s, "PAUSED")
+        assert s._store_state == "PAUSED"
 
-        s.transition("ACTIVE")
-        assert s.state == "ACTIVE"
+        client.transition(s, "ACTIVE")
+        assert s._store_state == "ACTIVE"
 
     def test_schedule_write_read_with_tasks(self, client):
         """Write a Schedule with Tasks and read back."""
@@ -516,8 +519,8 @@ class TestSchedulerIntegration:
                 Task(name="step2", fn="mod:fn2", depends_on=["step1"]),
             ],
         )
-        entity_id = s.save()
-        s2 = Schedule.get(entity_id)
+        entity_id = client.write(s)
+        s2 = client.read(Schedule, entity_id)
         assert s2.name == "test_pipeline"
         assert len(s2.tasks) == 2
         # After read, tasks are dicts — use task_defs property
@@ -529,14 +532,14 @@ class TestSchedulerIntegration:
         """Test Run state machine: PENDING → RUNNING → SUCCESS."""
         from scheduler.models import Run
         r = Run(schedule_name="test")
-        r.save()
-        assert r.state == "PENDING"
+        client.write(r)
+        assert r._store_state == "PENDING"
 
-        r.transition("RUNNING")
-        assert r.state == "RUNNING"
+        client.transition(r, "RUNNING")
+        assert r._store_state == "RUNNING"
 
-        r.transition("SUCCESS")
-        assert r.state == "SUCCESS"
+        client.transition(r, "SUCCESS")
+        assert r._store_state == "SUCCESS"
 
     def test_run_write_with_task_results(self, client):
         """Write a Run with TaskResults and read back."""
@@ -547,8 +550,8 @@ class TestSchedulerIntegration:
                 "extract": TaskResult(task_name="extract", status="SUCCESS", duration_ms=100),
             },
         )
-        entity_id = r.save()
-        r2 = Run.get(entity_id)
+        entity_id = client.write(r)
+        r2 = client.read(Run, entity_id)
         assert "extract" in r2.task_results
 
     def test_scheduler_register_and_fire(self, client):
@@ -559,9 +562,9 @@ class TestSchedulerIntegration:
 
         # Lightweight: inject client directly (no full start())
         server = SchedulerServer.__new__(SchedulerServer)
-        server._conn = client
+        server._client = client
         server._engine = None
-        server._dag_runner = DAGRunner(None)  # type: ignore[arg-type]
+        server._dag_runner = DAGRunner(None, client)
         server._last_fire = {}
         server._running = False
         server._thread = None
@@ -575,7 +578,7 @@ class TestSchedulerIntegration:
         server.register(s)
 
         run = server.fire("fire_test")
-        assert run.state in ("SUCCESS", "ERROR")
+        assert run._store_state in ("SUCCESS", "ERROR")
 
     def test_scheduler_tick_fires_due(self, client):
         """Tick should fire schedules that are due."""
@@ -584,9 +587,9 @@ class TestSchedulerIntegration:
         from scheduler.server import SchedulerServer
 
         server = SchedulerServer.__new__(SchedulerServer)
-        server._conn = client
+        server._client = client
         server._engine = None
-        server._dag_runner = DAGRunner(None)  # type: ignore[arg-type]
+        server._dag_runner = DAGRunner(None, client)
         server._last_fire = {}
         server._running = False
         server._thread = None
@@ -610,9 +613,9 @@ class TestSchedulerIntegration:
         from scheduler.server import SchedulerServer
 
         server = SchedulerServer.__new__(SchedulerServer)
-        server._conn = client
+        server._client = client
         server._engine = None
-        server._dag_runner = DAGRunner(None)  # type: ignore[arg-type]
+        server._dag_runner = DAGRunner(None, client)
         server._last_fire = {}
         server._running = False
         server._thread = None
@@ -629,7 +632,7 @@ class TestSchedulerIntegration:
         server.register(s)
 
         run = server.fire("pipeline_fire_test")
-        assert run.state in ("SUCCESS", "ERROR")
+        assert run._store_state in ("SUCCESS", "ERROR")
 
 
 # ── resolve_fn tests ─────────────────────────────────────────────────────
@@ -678,10 +681,18 @@ class TestSchedulerFullStack:
     FX = "tests._sched_fixtures"
 
     @pytest.fixture(scope="class")
-    def full_stack(self, scheduler_server):
-        """Delegate to session-scoped scheduler_server from conftest.py."""
-        scheduler_server.register_alias("test-fullstack")
-        yield {"server": scheduler_server}
+    def full_stack(self):
+        """Start self-contained SchedulerServer and alias-based Scheduler."""
+        from scheduler.admin import SchedulerServer
+
+        tmp = tempfile.mkdtemp(prefix="test_sched_fullstack_")
+        server = SchedulerServer(data_dir=tmp)
+        server.start(poll_interval=0)
+        server.register_alias("test-fullstack")
+
+        yield {"server": server}
+
+        server.stop()
 
     @pytest.fixture
     def scheduler(self, full_stack):
@@ -691,7 +702,6 @@ class TestSchedulerFullStack:
     def test_single_task_schedule_fire(self, scheduler):
         """Register a single-task schedule, fire it, verify Run is SUCCESS."""
         from scheduler.models import Schedule, Task
-
         from tests._sched_fixtures import call_log, reset_log
 
         reset_log()
@@ -704,13 +714,12 @@ class TestSchedulerFullStack:
         run = scheduler.fire("fs_fn_test")
 
         assert run.schedule_name == "fs_fn_test"
-        assert run.state == "SUCCESS"
+        assert run._store_state == "SUCCESS"
         assert "executed" in call_log
 
     def test_pipeline_fire_linear(self, scheduler):
         """Register a 3-task linear pipeline, fire, verify all SUCCESS."""
         from scheduler.models import Schedule, Task
-
         from tests._sched_fixtures import call_log, reset_log
 
         reset_log()
@@ -726,7 +735,7 @@ class TestSchedulerFullStack:
 
         run = scheduler.fire("fs_linear")
 
-        assert run.state == "SUCCESS"
+        assert run._store_state == "SUCCESS"
         assert call_log == ["a", "b", "c"]
         assert run.task_results["step1"].status == "SUCCESS"
         assert run.task_results["step2"].status == "SUCCESS"
@@ -749,7 +758,7 @@ class TestSchedulerFullStack:
 
         run = scheduler.fire("fs_diamond")
 
-        assert run.state == "SUCCESS"
+        assert run._store_state == "SUCCESS"
         assert len(run.task_results) == 4
         for name in ["a", "b", "c", "d"]:
             assert run.task_results[name].status == "SUCCESS"
@@ -770,7 +779,7 @@ class TestSchedulerFullStack:
 
         run = scheduler.fire("fs_fail")
 
-        assert run.state in ("PARTIAL", "ERROR")
+        assert run._store_state in ("PARTIAL", "ERROR")
         assert run.task_results["ok_task"].status == "SUCCESS"
         assert run.task_results["bad_task"].status == "ERROR"
         assert "boom" in run.task_results["bad_task"].error

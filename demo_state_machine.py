@@ -137,12 +137,12 @@ def main():
     order = Order(symbol="AAPL", quantity=100, price=228.50, side="BUY")
     entity_id = order.save()
     print(f"Created order {entity_id[:8]}… symbol=AAPL qty=100 @ $228.50")
-    print(f"State: {order.state}")
+    print(f"State: {order._store_state}")
     print()
 
     print("Transitioning to FILLED…")
     order.transition("FILLED")
-    print(f"State: {order.state}")
+    print(f"State: {order._store_state}")
     print()
 
     # Show what fired
@@ -167,18 +167,18 @@ def main():
         ]
 
     order2 = Order(symbol="MSFT", quantity=50, price=415.00, side="SELL")
-    order2._state_machine = FailLifecycle  # type: ignore[misc]
+    order2._state_machine = FailLifecycle
     order2.save()
-    print(f"Created order {order2.entity_id[:8]}… symbol=MSFT")  # type: ignore[index]
-    print(f"State before: {order2.state}")
+    print(f"Created order {order2._store_entity_id[:8]}… symbol=MSFT")
+    print(f"State before: {order2._store_state}")
 
     try:
         order2.transition("DONE")
     except ValueError as e:
         print(f"  Action raised: {e}")
 
-    fresh = Order.find(order2.entity_id)  # type: ignore[arg-type]
-    print(f"State after:  {fresh.state}  ← rolled back!")  # type: ignore[union-attr]
+    fresh = Order.find(order2._store_entity_id)
+    print(f"State after:  {fresh._store_state}  ← rolled back!")
 
     # ── Demo 3: Tier 2 failure is swallowed ──────────────────────────
     print("\n── Demo 3: Tier 2 Swallowed (hook failure) ─────────────────")
@@ -194,13 +194,13 @@ def main():
         ]
 
     order3 = Order(symbol="GOOG", quantity=25, price=175.00, side="BUY")
-    order3._state_machine = FragileLifecycle  # type: ignore[misc]
+    order3._state_machine = FragileLifecycle
     order3.save()
-    print(f"Created order {order3.entity_id[:8]}… symbol=GOOG")  # type: ignore[index]
-    print(f"State before: {order3.state}")
+    print(f"Created order {order3._store_entity_id[:8]}… symbol=GOOG")
+    print(f"State before: {order3._store_state}")
 
     order3.transition("BETA")
-    print(f"State after:  {order3.state}  ← committed despite hook failure!")
+    print(f"State after:  {order3._store_state}  ← committed despite hook failure!")
 
     # ── Summary ──────────────────────────────────────────────────────
     print("\n" + "=" * 70)

@@ -116,7 +116,9 @@ def _build_sandbox_namespace(ctx: _PlatformContext | None = None) -> dict:
     import json as json_mod
     import math
 
-    from store import REGISTRY, ColumnDef, Storable
+    from store.base import Storable
+    from store.columns import REGISTRY
+    from store.registry import ColumnDef
 
     ns = {
         # Column registry
@@ -276,7 +278,7 @@ def create_codegen_tools(ctx: _PlatformContext) -> list:
             columns_json: JSON list of column names to check.
                           Pass "[]" to get a summary of all columns.
         """
-        from store import REGISTRY
+        from store.columns import REGISTRY
 
         try:
             columns = json.loads(columns_json)
@@ -412,7 +414,7 @@ def create_codegen_tools(ctx: _PlatformContext) -> list:
         for k, v in ns.items():
             if isinstance(v, type) and k != "Storable" and not k.startswith("_"):
                 try:
-                    from store import Storable as _S
+                    from store.base import Storable as _S
                     if issubclass(v, _S) and v is not _S:
                         created_types.append(k)
                         ctx.register_storable_type(k, v)

@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import os
 
-from pyiceberg.catalog import Catalog, load_catalog
+from pyiceberg.catalog import load_catalog
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def create_catalog(
     s3_access_key: str | None = None,
     s3_secret_key: str | None = None,
     s3_region: str | None = None,
-) -> Catalog:
+) -> object:
     """
     Create a PyIceberg REST catalog connected to Lakekeeper + S3-compatible storage.
 

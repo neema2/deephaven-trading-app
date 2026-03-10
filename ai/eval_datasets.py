@@ -17,9 +17,11 @@ Usage::
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
-from lakehouse import Lakehouse
-from media.store import MediaStore
+if TYPE_CHECKING:
+    from lakehouse.query import Lakehouse
+    from media.store import MediaStore
 
 from ai.eval import EvalCase
 

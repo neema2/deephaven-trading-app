@@ -5,7 +5,7 @@ from ai._types import ExtractionResult, LLMResponse, Message, RAGResult, Tool, T
 from ai.agent import Agent, AgentResult, AgentStep
 from ai.client import AI
 from ai.eval import EvalCase, EvalResult, EvalRunner
-from ai.team import AgentTeam, TeamResult
+from ai.team import AgentTeam
 
 __all__ = [
     "AI",
@@ -20,7 +20,6 @@ __all__ = [
     "LLMResponse",
     "Message",
     "RAGResult",
-    "TeamResult",
     "Tool",
     "ToolCall",
     "tool",

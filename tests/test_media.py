@@ -47,7 +47,7 @@ def _make_pdf(text: str) -> bytes:
     doc = pymupdf.open()
     page = doc.new_page()
     assert page is not None
-    page.insert_text((72, 72), text, fontsize=12)  # type: ignore[unreachable]
+    page.insert_text((72, 72), text, fontsize=12)
     data = doc.tobytes()
     doc.close()
     return data
@@ -63,8 +63,8 @@ class TestExtractPDF:
     def test_multiline(self):
         data = _make_pdf("Line one.\nLine two.\nLine three.")
         result = _extract_pdf(data)
-        assert "Line one" in result  # type: ignore[operator]
-        assert "Line three" in result  # type: ignore[operator]
+        assert "Line one" in result
+        assert "Line three" in result
 
     def test_via_dispatcher(self):
         data = _make_pdf("Credit default swap valuation.")
@@ -97,7 +97,7 @@ class TestExtractPlain:
     def test_empty_and_fallback(self):
         assert _extract_plain(b"") is None
         assert _extract_plain(b"   ") is None
-        assert "caf" in _extract_plain("café résumé".encode("latin-1"))  # type: ignore[operator]
+        assert "caf" in _extract_plain("café résumé".encode("latin-1"))
 
 
 # ── Markdown extraction ───────────────────────────────────────────────────
@@ -107,14 +107,14 @@ class TestExtractMarkdown:
     def test_strips_formatting(self):
         md = b"# Title\n## Subtitle\nThis is **bold** and *italic* text"
         result = _extract_markdown(md)
-        assert "Title" in result and "#" not in result  # type: ignore[operator]
-        assert "bold" in result and "**" not in result  # type: ignore[operator]
+        assert "Title" in result and "#" not in result
+        assert "bold" in result and "**" not in result
 
     def test_strips_links_and_code(self):
         md = b"Check [this link](https://example.com)\n```python\nprint('hello')\n```\nMore text"
         result = _extract_markdown(md)
-        assert "this link" in result and "https://" not in result  # type: ignore[operator]
-        assert "More text" in result and "print" not in result  # type: ignore[operator]
+        assert "this link" in result and "https://" not in result
+        assert "More text" in result and "print" not in result
 
     def test_empty(self):
         assert _extract_markdown(b"") is None
@@ -127,8 +127,8 @@ class TestExtractHTML:
     def test_strips_tags_scripts_style(self):
         html = b"<html><script>alert('xss')</script><style>body{color:red}</style><body><p>Hello <b>world</b></p></body></html>"
         result = _extract_html(html)
-        assert "Hello" in result and "world" in result and "<" not in result  # type: ignore[operator]
-        assert "alert" not in result and "color" not in result  # type: ignore[operator]
+        assert "Hello" in result and "world" in result and "<" not in result
+        assert "alert" not in result and "color" not in result
 
     def test_empty(self):
         assert _extract_html(b"") is None
@@ -145,12 +145,12 @@ class TestExtractText:
 
     def test_markdown(self):
         result = extract_text(b"# Title\nBody", "text/markdown")
-        assert "Title" in result  # type: ignore[operator]
-        assert "#" not in result  # type: ignore[operator]
+        assert "Title" in result
+        assert "#" not in result
 
     def test_html(self):
         result = extract_text(b"<p>Content</p>", "text/html")
-        assert "Content" in result  # type: ignore[operator]
+        assert "Content" in result
 
     def test_unknown_returns_none(self):
         result = extract_text(b"\x00\x01\x02", "image/png")
@@ -162,7 +162,7 @@ class TestExtractText:
 
     def test_markdown_by_filename(self):
         result = extract_text(b"# Title\nBody", "application/octet-stream", filename="README.md")
-        assert "Title" in result  # type: ignore[operator]
+        assert "Title" in result
 
 
 # ── Document model ────────────────────────────────────────────────────────

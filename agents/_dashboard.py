@@ -72,10 +72,11 @@ def create_dashboard_tools(ctx: _PlatformContext) -> list:
             from streaming import get_tables
             tables = get_tables()
             result = []
-            for name, tbl in tables.items():
+            for name, (_writer, _raw, _live) in tables.items():
                 result.append({
                     "name": name,
-                    "rows": tbl.size,
+                    "raw_table": f"{name}_raw",
+                    "live_table": f"{name}_live",
                 })
             return json.dumps({"tables": result, "count": len(result)})
         except Exception as e:
@@ -235,7 +236,7 @@ def create_dashboard_tools(ctx: _PlatformContext) -> list:
             return json.dumps({"error": f"Invalid JSON: {e}"})
 
         # Check which columns need defining
-        from store import REGISTRY
+        from store.columns import REGISTRY
         type_map = {"str": "str", "int": "int", "float": "float", "bool": "bool"}
 
         all_col_names = [f["name"] for f in fields]
@@ -246,7 +247,7 @@ def create_dashboard_tools(ctx: _PlatformContext) -> list:
 
         # Generate column definitions for new columns
         if new_cols:
-            col_lines = ["from store import REGISTRY", ""]
+            col_lines = ["from store.columns import REGISTRY", ""]
             for col_name in new_cols:
                 # Find type from fields or default to float for computeds
                 field_match = next((f for f in fields if f["name"] == col_name), None)
@@ -288,7 +289,7 @@ def create_dashboard_tools(ctx: _PlatformContext) -> list:
         # Generate model code
         lines = [
             "from dataclasses import dataclass",
-            "from store import Storable",
+            "from store.base import Storable",
             "from reactive.computed import computed",
             "try:",
             "    from streaming.decorator import ticking",

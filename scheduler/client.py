@@ -14,9 +14,12 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from scheduler.models import Run, Schedule
-from scheduler.server import SchedulerServer
+
+if TYPE_CHECKING:
+    from scheduler.server import SchedulerServer
 
 logger = logging.getLogger(__name__)
 

@@ -18,27 +18,50 @@ requires_gemini = pytest.mark.skipif(not GEMINI_API_KEY, reason="GEMINI_API_KEY 
 
 
 @pytest.fixture(scope="module")
-def _embed_server(store_server):
-    """Delegate to session-scoped store_server, add embed-specific bootstrap."""
-    from media.models import bootstrap_chunks_schema, bootstrap_search_schema
-    store_server.provision_user("emb_user", "emb_pw")
+def pg_server():
+    """Start embedded PG with search + chunks schema."""
+    import tempfile
 
-    conn = store_server.admin_conn()
+    from media.models import bootstrap_chunks_schema, bootstrap_search_schema
+    from store.server import StoreServer
+    server = StoreServer(data_dir=tempfile.mkdtemp(prefix="test_embed_upload_"))
+    server.start()
+    server.provision_user("emb_user", "emb_pw")
+
+    conn = server.admin_conn()
     bootstrap_search_schema(conn, embedding_dim=768)
     conn.close()
 
-    conn = store_server.admin_conn()
+    conn = server.admin_conn()
     bootstrap_chunks_schema(conn, embedding_dim=768)
     conn.close()
 
-    return store_server
+    yield server
+    server.stop()
 
 
 @pytest.fixture(scope="module")
-def store_conn(_embed_server):
+def s3_server():
+    """Start S3-compatible object store."""
+    import tempfile
+
+    import objectstore
+    loop = asyncio.new_event_loop()
+    store = loop.run_until_complete(objectstore.configure(
+        "minio",
+        data_dir=tempfile.mkdtemp(prefix="test_embed_s3_"),
+        api_port=9022,
+        console_port=9023,
+    ))
+    yield store
+    # atexit handles cleanup
+
+
+@pytest.fixture(scope="module")
+def store_conn(pg_server):
     """Connect as emb_user."""
     from store.connection import connect
-    info = _embed_server.conn_info()
+    info = pg_server.conn_info()
     conn = connect(user="emb_user", host=info["host"], port=info["port"],
                    dbname=info["dbname"], password="emb_pw")
     yield conn
@@ -46,11 +69,11 @@ def store_conn(_embed_server):
 
 
 @pytest.fixture(scope="module")
-def media_store_no_embed(media_server, store_conn):
+def media_store_no_embed(s3_server, store_conn):
     """MediaStore WITHOUT embedding provider."""
     from media import MediaStore
     ms = MediaStore(
-        s3_endpoint="localhost:9102",
+        s3_endpoint="localhost:9022",
         s3_access_key="minioadmin",
         s3_secret_key="minioadmin",
         s3_bucket="test-embed",
@@ -60,30 +83,30 @@ def media_store_no_embed(media_server, store_conn):
 
 
 @pytest.fixture(scope="module")
-def media_store_with_embed(media_server, store_conn):
+def media_store_with_embed(s3_server, store_conn):
     """MediaStore WITH Gemini embedding provider."""
     if not GEMINI_API_KEY:
         pytest.skip("GEMINI_API_KEY not set")
 
-    from ai import AI
+    from ai._embeddings import GeminiEmbeddings
     from media import MediaStore
 
-    ai = AI(api_key=GEMINI_API_KEY, embedding_dim=768)
+    embedder = GeminiEmbeddings(api_key=GEMINI_API_KEY, dimension=768)
     ms = MediaStore(
-        s3_endpoint="localhost:9102",
+        s3_endpoint="localhost:9022",
         s3_access_key="minioadmin",
         s3_secret_key="minioadmin",
         s3_bucket="test-embed",
-        ai=ai,
+        embedding_provider=embedder,
     )
     yield ms
     ms.close()
 
 
 @pytest.fixture(scope="module")
-def admin_db(_embed_server):
+def admin_db(pg_server):
     """Fresh admin connection for verification queries."""
-    conn = _embed_server.admin_conn()
+    conn = pg_server.admin_conn()
     yield conn
     conn.close()
 
@@ -101,14 +124,14 @@ class TestUploadWithoutEmbedder:
             filename="no_embed.txt",
             title="No Embed Doc",
         )
-        assert doc.entity_id is not None
+        assert doc._store_entity_id is not None
         assert doc.has_text
 
         # No chunks should exist
         with admin_db.cursor() as cur:
             cur.execute(
                 "SELECT count(*) FROM document_chunks WHERE entity_id = %s",
-                (str(doc.entity_id),),
+                (str(doc._store_entity_id),),
             )
             assert cur.fetchone()[0] == 0
 
@@ -141,7 +164,7 @@ class TestUploadWithEmbedder:
             cur.execute(
                 "SELECT chunk_index, token_count, embedding IS NOT NULL as has_emb "
                 "FROM document_chunks WHERE entity_id = %s ORDER BY chunk_index",
-                (str(doc.entity_id),),
+                (str(doc._store_entity_id),),
             )
             rows = cur.fetchall()
 
@@ -160,7 +183,7 @@ class TestUploadWithEmbedder:
         with admin_db.cursor() as cur:
             cur.execute(
                 "SELECT embedding IS NOT NULL FROM document_search WHERE entity_id = %s",
-                (str(doc.entity_id),),
+                (str(doc._store_entity_id),),
             )
             row = cur.fetchone()
 
@@ -181,7 +204,7 @@ class TestUploadWithEmbedder:
                 FROM document_chunks
                 WHERE entity_id = %s AND embedding IS NOT NULL
                 LIMIT 1
-            """, (str(doc.entity_id),))
+            """, (str(doc._store_entity_id),))
             row = cur.fetchone()
 
         assert row is not None
@@ -189,7 +212,7 @@ class TestUploadWithEmbedder:
 
     def test_cosine_search_finds_document(self, media_store_with_embed, admin_db):
         """Cosine similarity query on chunks finds the uploaded document."""
-        from ai._gemini import GeminiEmbeddings
+        from ai._embeddings import GeminiEmbeddings
 
         doc = media_store_with_embed.upload(
             b"Black-Scholes option pricing model for European call and put options.",
@@ -217,8 +240,8 @@ class TestUploadWithEmbedder:
         assert len(rows) > 0
         # The options pricing doc should be in the top results
         found_ids = [row[0] for row in rows]
-        assert str(doc.entity_id) in found_ids, (
-            f"Expected {doc.entity_id} in results, got {found_ids}"
+        assert str(doc._store_entity_id) in found_ids, (
+            f"Expected {doc._store_entity_id} in results, got {found_ids}"
         )
 
     def test_binary_file_no_chunks(self, media_store_with_embed, admin_db):
@@ -233,7 +256,7 @@ class TestUploadWithEmbedder:
         with admin_db.cursor() as cur:
             cur.execute(
                 "SELECT count(*) FROM document_chunks WHERE entity_id = %s",
-                (str(doc.entity_id),),
+                (str(doc._store_entity_id),),
             )
             assert cur.fetchone()[0] == 0
 
@@ -292,7 +315,7 @@ class TestSemanticSearch:
     def test_semantic_search_no_embedder_raises(self, media_store_no_embed):
         """semantic_search without embedding provider raises ValueError."""
         import pytest
-        with pytest.raises(ValueError, match="AI instance"):
+        with pytest.raises(ValueError, match="embedding_provider"):
             media_store_no_embed.semantic_search("test query")
 
 
@@ -340,5 +363,5 @@ class TestHybridSearch:
 
     def test_hybrid_no_embedder_raises(self, media_store_no_embed):
         """hybrid_search without embedding provider raises ValueError."""
-        with pytest.raises(ValueError, match="AI instance"):
+        with pytest.raises(ValueError, match="embedding_provider"):
             media_store_no_embed.hybrid_search("test query")

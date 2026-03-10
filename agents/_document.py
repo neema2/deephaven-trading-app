@@ -76,7 +76,7 @@ def create_document_tools(ctx: _PlatformContext) -> list:
             doc = ms.upload(file_path, title=title or "", tags=tag_list or None)
             return json.dumps({
                 "status": "uploaded",
-                "entity_id": str(doc.entity_id),
+                "entity_id": str(doc._store_entity_id),
                 "title": doc.title,
                 "filename": doc.filename,
                 "content_type": doc.content_type,
@@ -104,7 +104,7 @@ def create_document_tools(ctx: _PlatformContext) -> list:
                 limit=limit,
             )
             result = [{
-                "entity_id": str(d.entity_id),
+                "entity_id": str(d._store_entity_id),
                 "title": d.title,
                 "filename": d.filename,
                 "content_type": d.content_type,
@@ -151,7 +151,7 @@ def create_document_tools(ctx: _PlatformContext) -> list:
                          "revenue": {"type": "number"}}, "required": ["company"]}
         """
         if ctx.ai is None:
-            return json.dumps({"error": "No AI configured in _PlatformContext"})  # type: ignore[unreachable]
+            return json.dumps({"error": "No AI configured in _PlatformContext"})
 
         try:
             ms = _get_ms()
@@ -168,7 +168,7 @@ def create_document_tools(ctx: _PlatformContext) -> list:
                 # Try downloading and extracting
                 data = ms.download(doc)
                 from media.extraction import extract_text
-                text = extract_text(data, doc.content_type) or ""
+                text = extract_text(data, doc.content_type)
 
             if not text:
                 return json.dumps({"error": "No text content available in document"})
@@ -221,7 +221,7 @@ def create_document_tools(ctx: _PlatformContext) -> list:
                     doc = ms.upload(filepath, title=filename, tags=tag_list or None)
                     uploaded.append({
                         "filename": filename,
-                        "entity_id": str(doc.entity_id),
+                        "entity_id": str(doc._store_entity_id),
                         "content_type": doc.content_type,
                     })
                 except Exception as e:

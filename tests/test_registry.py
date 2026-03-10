@@ -299,7 +299,7 @@ class TestInitSubclass:
             symbol: str = ""
             price: float = 0.0
             quantity: int = 0
-        assert TestTrade in Storable._registry.entities()  # type: ignore[union-attr]
+        assert TestTrade in Storable._registry.entities()
 
     def test_bad_storable_subclass_rejected(self):
         """Storable subclass with unregistered field should fail."""
@@ -377,9 +377,9 @@ class TestInstanceValidation:
     def test_non_nullable_rejects_none(self, trading_reg):
         @dataclass
         class Trade:
-            symbol: str = None  # type: ignore[assignment]
+            symbol: str = None
         trading_reg.validate_class(Trade)
-        errors = trading_reg.validate_instance(Trade(symbol=None))  # type: ignore[arg-type]
+        errors = trading_reg.validate_instance(Trade(symbol=None))
         assert any("not nullable" in e for e in errors)
 
     def test_multiple_violations(self, trading_reg):
@@ -463,35 +463,12 @@ class TestGlobalRegistry:
     def test_global_registry_loaded_and_wired(self):
         from store.base import Storable
         from store.columns import REGISTRY
-
-        # Define example models inline — these auto-register via Storable.__init_subclass__
-        @dataclass
-        class _AuditTrade(Storable):
-            symbol: str = ""
-            quantity: int = 0
-            price: float = 0.0
-            side: str = ""
-
-        @dataclass
-        class _AuditOrder(Storable):
-            symbol: str = ""
-            quantity: int = 0
-            price: float = 0.0
-            side: str = ""
-            order_type: str = "LIMIT"
-            status: str = "PENDING"
-
-        @dataclass
-        class _AuditSignal(Storable):
-            symbol: str = ""
-            direction: str = ""
-            strength: float = 0.0
-
+        from store.models import Order, Signal, Trade
         cols = REGISTRY.all_columns()
         assert len(cols) >= 40
         assert Storable._registry is not None
         entities = Storable._registry.entities()
-        assert _AuditTrade in entities and _AuditOrder in entities and _AuditSignal in entities
+        assert Trade in entities and Order in entities and Signal in entities
 
     def test_registry_has_expected_columns(self):
         from store.columns import REGISTRY

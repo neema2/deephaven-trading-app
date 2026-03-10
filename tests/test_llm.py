@@ -8,8 +8,7 @@ import json
 import os
 
 import pytest
-from ai._gemini import GeminiLLM
-from ai._llm import LLMClient
+from ai._llm import GeminiLLM, LLMClient
 from ai._types import LLMResponse, Message, ToolCall
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")

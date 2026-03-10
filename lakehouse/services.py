@@ -17,54 +17,24 @@ import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
-from objectstore import ObjectStore
+
+if TYPE_CHECKING:
+    from objectstore import ObjectStore
+
+from store.pg_compat import get_server as get_pg_server
 
 logger = logging.getLogger(__name__)
-
-# ── Embedded PostgreSQL (zonkyio binaries) ─────────────────────────────────
-#
-# pgserver's bundled PG is minimal (no ICU, no OpenSSL, no pgcrypto).
-# Lakekeeper requires pgcrypto + ICU. We use zonkyio embedded-postgres-binaries
-# which ship a full PG 16 build with all contrib extensions.
-
-ZONKYIO_PG_VERSION = "16.6.0"
-ZONKYIO_BASE_URL = "https://repo1.maven.org/maven2/io/zonky/test/postgres"
-
-_ZONKYIO_ARTIFACTS = {
-    ("darwin", "arm64"): "embedded-postgres-binaries-darwin-arm64v8",
-    ("darwin", "aarch64"): "embedded-postgres-binaries-darwin-arm64v8",
-    ("darwin", "x86_64"): "embedded-postgres-binaries-darwin-amd64",
-    ("linux", "x86_64"): "embedded-postgres-binaries-linux-amd64",
-    ("linux", "aarch64"): "embedded-postgres-binaries-linux-arm64v8",
-    ("linux", "arm64"): "embedded-postgres-binaries-linux-arm64v8",
-}
-
-
-def _zonkyio_jar_url() -> str:
-    """Get the zonkyio JAR download URL for the current platform."""
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-    key = (system, machine)
-    if key not in _ZONKYIO_ARTIFACTS:
-        raise RuntimeError(f"No zonkyio PG binaries for {system}/{machine}")
-    artifact = _ZONKYIO_ARTIFACTS[key]
-    return (
-        f"{ZONKYIO_BASE_URL}/{artifact}/{ZONKYIO_PG_VERSION}/"
-        f"{artifact}-{ZONKYIO_PG_VERSION}.jar"
-    )
 
 
 class EmbeddedPGManager:
     """
-    Manages a full PostgreSQL instance using zonkyio embedded-postgres-binaries.
+    Manages a PostgreSQL instance using pg_compat (architecture-aware).
 
-    Unlike pgserver (which ships a minimal PG without ICU/OpenSSL/pgcrypto),
-    zonkyio binaries include the full contrib suite. This PG instance is used
-    exclusively by Lakekeeper as its catalog backend.
-
-    Lifecycle: download → initdb → pg_ctl start (TCP) → pg_ctl stop.
+    On x86, this typically uses pgserver (embedded).
+    On ARM, this uses pixeltable-pgserver (system-shim).
     """
 
     def __init__(
@@ -76,176 +46,113 @@ class EmbeddedPGManager:
         self._data_dir = Path(data_dir).resolve()
         self._port = port
         self._user = user
-        self._pgdata = self._data_dir / "pgdata"
-        self._pg_home = self._data_dir / "pg"
+        self._pg_server = None
+        self._container_name = None
+        self._pg_url_override = None
 
     @property
     def pg_url(self) -> str:
-        """TCP connection URL for Lakekeeper."""
-        return f"postgres://{self._user}@localhost:{self._port}/postgres"
+        """Connection URL for Lakekeeper."""
+        if self._pg_url_override:
+            return self._pg_url_override
+
+        if not self._pg_server:
+            return f"postgresql://{self._user}@127.0.0.1:{self._port}/postgres"
+
+        uri = self._pg_server.get_uri()
+        
+        # Rust sqlx (Lakekeeper) fails parsing empty hostnames like "postgresql://user:@/dbname?host=..."
+        # We inject localhost as a dummy hostname (the actual socket path is still honored via ?host=).
+        import urllib.parse
+        parsed = urllib.parse.urlparse(uri)
+        if not parsed.hostname:
+            netloc = parsed.netloc
+            if netloc.endswith("@"):
+                netloc += "localhost"
+            parsed = parsed._replace(netloc=netloc)
+            uri = urllib.parse.urlunparse(parsed)
+            
+        # Ensure database is postgres
+        if not parsed.path or parsed.path == "/":
+            uri = uri.rstrip("/") + "/postgres"
+            
+        return uri
 
     @property
     def port(self) -> int:
         return self._port
 
-    def _pg_ctl(self) -> Path:
-        return self._pg_home / "bin" / "pg_ctl"
-
-    def _initdb(self) -> Path:
-        return self._pg_home / "bin" / "initdb"
-
     async def start(self) -> None:
-        """Download binaries if needed, init pgdata, start PG with TCP."""
-        self._ensure_binaries()
+        """Start PG using the compatibility layer or Docker natively on ARM."""
+        if platform.system() == "Linux" and platform.machine() in ("aarch64", "arm64"):
+            import socket
+            import uuid
+            
+            self._container_name = f"lk-pg-{uuid.uuid4().hex[:6]}"
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('', 0))
+                self._port = s.getsockname()[1]
+                
+            logger.info("ARM64 detected. Starting native Docker PostgreSQL (%s) on port %d...", self._container_name, self._port)
+            subprocess.run([
+                "docker", "run", "-d", "--rm", "--name", self._container_name,
+                "-p", f"{self._port}:5432",
+                "-e", "POSTGRES_USER=postgres",
+                "-e", "POSTGRES_PASSWORD=postgres",
+                "-e", "POSTGRES_DB=postgres",
+                "postgres:15"
+            ], check=True, capture_output=True)
 
-        if not (self._pgdata / "PG_VERSION").exists():
-            self._run_initdb()
-
-        # Check if already running
-        pid_file = self._pgdata / "postmaster.pid"
-        if pid_file.exists():
-            # Try to connect
-            try:
-                from db import connect as _db_connect
-                conn = _db_connect(
-                    host="localhost", port=self._port,
-                    user=self._user, dbname="postgres",
-                    connect_timeout=2,
-                )
-                conn.close()
-                logger.info("Embedded PG already running on port %d", self._port)
-                return
-            except Exception:
-                # Stale pid file — stop and restart
-                subprocess.run(
-                    [str(self._pg_ctl()), "stop", "-D", str(self._pgdata), "-m", "fast"],
-                    capture_output=True,
-                )
-                import time
-                time.sleep(1)
-
-        # Start with TCP
-        log_file = self._data_dir / "pg.log"
-        result = subprocess.run(
-            [str(self._pg_ctl()), "start", "-D", str(self._pgdata), "-w",
-             "-o", f"-h localhost -p {self._port} -k {self._pgdata}",
-             "-l", str(log_file)],
-            capture_output=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            stderr = result.stderr.decode()[:500]
-            stdout = result.stdout.decode()[:500]
-            log_tail = ""
-            if log_file.exists():
-                log_tail = log_file.read_text()[-500:]
-            raise RuntimeError(
-                f"Failed to start embedded PG: {stderr}\n{stdout}\nLog: {log_tail}"
-            )
-
-        # Wait for ready
-        from db import connect as _db_connect
-        for _ in range(10):
-            try:
-                conn = _db_connect(
-                    host="localhost", port=self._port,
-                    user=self._user, dbname="postgres",
-                    connect_timeout=2,
-                )
-                conn.close()
-                logger.info("Embedded PG started on port %d", self._port)
-                return
-            except Exception:
+            # Wait for ready status
+            for _ in range(30):
+                res = subprocess.run(["docker", "exec", self._container_name, "pg_isready", "-U", "postgres"], capture_output=True)
+                if res.returncode == 0:
+                    break
                 await asyncio.sleep(0.5)
 
-        raise RuntimeError(f"Embedded PG not ready after start (port {self._port})")
+            self._pg_url_override = f"postgresql://postgres:postgres@127.0.0.1:{self._port}/postgres"
+            return
+
+        try:
+            from store.pg_compat import PGSERVER_FILE, ensure_pgcrypto_shim, ensure_uuid_ossp_shim
+            ensure_uuid_ossp_shim(PGSERVER_FILE)
+            ensure_pgcrypto_shim(PGSERVER_FILE)
+
+            # Let the platform choose the port (it often uses static mapping based on data_dir)
+            self._pg_server = get_pg_server(str(self._data_dir))
+            
+            # Update our port reference from the actual URI picked by the server.
+            uri = self._pg_server.get_uri()
+            import urllib.parse
+            parsed = urllib.parse.urlparse(uri)
+            if parsed.port:
+                self._port = parsed.port
+            logger.info("Embedded PG started/found on port %d", self._port)
+        except Exception as e:
+            logger.error("Failed to start PostgreSQL via pg_compat: %s", e)
+            raise RuntimeError(f"Failed to start embedded PG: {e}") from e
 
     async def stop(self) -> None:
-        """Stop PG via pg_ctl."""
-        pg_ctl = self._pg_ctl()
-        if not pg_ctl.exists():
-            return
-        result = subprocess.run(
-            [str(pg_ctl), "stop", "-D", str(self._pgdata), "-m", "fast"],
-            capture_output=True,
-            timeout=15,
-        )
-        if result.returncode == 0:
+        """Stop PG via pg_compat or Docker container."""
+        if self._container_name:
+            subprocess.run(["docker", "stop", self._container_name], check=False, capture_output=True)
+            self._container_name = None
+            logger.info("Docker PG stopped")
+
+        if self._pg_server:
+            # pgserver uses cleanup() to stop the server
+            self._pg_server.cleanup()
+            self._pg_server = None
             logger.info("Embedded PG stopped")
-        else:
-            logger.debug("Embedded PG stop returned %d (may not have been running)",
-                         result.returncode)
+
 
     def _run_initdb(self) -> None:
-        """Initialize pgdata directory."""
-        self._pgdata.mkdir(parents=True, exist_ok=True)
-        initdb = self._initdb()
-        result = subprocess.run(
-            [str(initdb), "-D", str(self._pgdata),
-             "-U", self._user, "--auth=trust",
-             "-E", "UTF8", "--locale-provider=icu", "--icu-locale=en-US"],
-            capture_output=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"initdb failed: {result.stderr.decode()[:500]}")
-
-        # Minimize shared memory usage so many concurrent PG instances
-        # don't exhaust macOS kern.sysv.shm* limits during parallel tests.
-        conf = self._pgdata / "postgresql.conf"
-        with open(conf, "a") as f:
-            f.write("\n# Added by py-flow: minimize SysV IPC for parallel test suites\n")
-            f.write("shared_buffers = 8MB\n")
-            f.write("dynamic_shared_memory_type = posix\n")
-
-        logger.info("Initialized pgdata at %s", self._pgdata)
+        """Deprecated."""
+        pass
 
     def _ensure_binaries(self) -> None:
-        """Download and extract zonkyio PG binaries if not present."""
-        pg_ctl = self._pg_ctl()
-        if pg_ctl.exists() and os.access(pg_ctl, os.X_OK):
-            return
-
-        logger.info("Downloading zonkyio PG %s binaries...", ZONKYIO_PG_VERSION)
-        jar_url = _zonkyio_jar_url()
-
-        with tempfile.TemporaryDirectory() as tmpdir_str:
-            tmpdir = Path(tmpdir_str)
-            jar_path = tmpdir / "pg.jar"
-
-            # Download the JAR
-            with httpx.stream("GET", jar_url, follow_redirects=True, timeout=120) as resp:
-                resp.raise_for_status()
-                with open(jar_path, "wb") as f:
-                    for chunk in resp.iter_bytes(chunk_size=65536):
-                        f.write(chunk)
-            logger.info("Downloaded (%d MB)", jar_path.stat().st_size // (1024 * 1024))
-
-            # JAR is a ZIP containing a .txz
-            extract_dir = tmpdir / "jar"
-            with zipfile.ZipFile(jar_path) as zf:
-                txz_names = [n for n in zf.namelist() if n.endswith(".txz")]
-                if not txz_names:
-                    raise RuntimeError("No .txz file found in zonkyio JAR")
-                zf.extract(txz_names[0], extract_dir)
-                txz_path = extract_dir / txz_names[0]
-
-            # Extract the .txz into pg_home
-            self._pg_home.mkdir(parents=True, exist_ok=True)
-            with tarfile.open(txz_path, "r:xz") as tf:
-                tf.extractall(path=self._pg_home)
-
-        # Make binaries executable
-        bin_dir = self._pg_home / "bin"
-        if bin_dir.exists():
-            for binary in bin_dir.iterdir():
-                if binary.is_file():
-                    binary.chmod(binary.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP)
-
-        if not pg_ctl.exists():
-            raise FileNotFoundError(f"pg_ctl not found after extraction: {pg_ctl}")
-
-        logger.info("Installed zonkyio PG %s to %s", ZONKYIO_PG_VERSION, self._pg_home)
+        """Deprecated."""
+        pass
 
 
 def ensure_pgcrypto() -> bool:
@@ -431,7 +338,7 @@ class LakekeeperManager:
         env["LAKEKEEPER__PG_ENCRYPTION_KEY"] = self._encryption_key
         env["LAKEKEEPER__LISTEN_PORT"] = str(self._port)
         env["LAKEKEEPER__PG_SSL_MODE"] = "disable"
-        env["LAKEKEEPER__METRICS_PORT"] = str(self._port + 1000)
+        env["LAKEKEEPER__METRICS_PORT"] = "9100"
 
         # Run migrate first
         logger.info("Running Lakekeeper migrate...")

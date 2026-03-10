@@ -19,7 +19,7 @@ requires_gemini = pytest.mark.skipif(not GEMINI_API_KEY, reason="GEMINI_API_KEY 
 def llm():
     if not GEMINI_API_KEY:
         pytest.skip("GEMINI_API_KEY not set")
-    from ai._gemini import GeminiLLM
+    from ai._llm import GeminiLLM
     return GeminiLLM(api_key=GEMINI_API_KEY)
 
 

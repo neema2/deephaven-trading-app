@@ -83,7 +83,7 @@ def _build_storable_class(name: str, fields: list[dict]) -> type:
     Returns:
         A new dataclass that inherits from Storable.
     """
-    from store import Storable
+    from store.base import Storable
 
     # Build field definitions for dataclasses.make_dataclass
     dc_fields = []
@@ -125,9 +125,9 @@ def _serialize_storable(obj: Any) -> dict:
         val = getattr(obj, f.name)
         result[f.name] = val
     # Include store metadata
-    if obj.entity_id:
-        result["_entity_id"] = obj.entity_id
-        result["_version"] = obj.version
+    if obj._store_entity_id:
+        result["_entity_id"] = obj._store_entity_id
+        result["_version"] = obj._store_version
     return result
 
 
@@ -148,7 +148,7 @@ def create_oltp_tools(ctx: _PlatformContext) -> list:
         for name in types:
             cls = ctx.get_storable_type(name)
             if cls and dataclasses.is_dataclass(cls):
-                fields = [  # type: ignore[unreachable]
+                fields = [
                     {"name": f.name, "type": f.type.__name__ if isinstance(f.type, type) else str(f.type)}
                     for f in dataclasses.fields(cls)
                     if not f.name.startswith("_")
@@ -222,7 +222,7 @@ def create_oltp_tools(ctx: _PlatformContext) -> list:
             return json.dumps({"error": f"Type '{name}' already exists."})
 
         # Check which columns already exist in the registry
-        from store import REGISTRY
+        from store.columns import REGISTRY
 
         new_columns = []
         existing_columns = []
@@ -236,7 +236,7 @@ def create_oltp_tools(ctx: _PlatformContext) -> list:
         # Generate column definition code for new columns
         col_lines = []
         if new_columns:
-            col_lines.append("from store import REGISTRY")
+            col_lines.append("from store.columns import REGISTRY")
             col_lines.append("")
             for f in new_columns:
                 py_type = _TYPE_MAP.get(f["type"].lower(), str).__name__
@@ -253,7 +253,7 @@ def create_oltp_tools(ctx: _PlatformContext) -> list:
         # Generate Storable class code
         model_lines = [
             "from dataclasses import dataclass",
-            "from store import Storable",
+            "from store.base import Storable",
             "",
             "@dataclass",
             f"class {name}(Storable):",
@@ -351,8 +351,8 @@ def create_oltp_tools(ctx: _PlatformContext) -> list:
 
         # Need an active store connection
         try:
-            from store import active_connection
-            conn = active_connection()
+            from store.connection import get_connection
+            conn = get_connection()
         except RuntimeError:
             # Try to connect using context
             if ctx.store_alias:
@@ -392,8 +392,8 @@ def create_oltp_tools(ctx: _PlatformContext) -> list:
 
         # Need an active store connection
         try:
-            from store import active_connection
-            active_connection()
+            from store.connection import get_connection
+            get_connection()
         except RuntimeError:
             if ctx.store_alias:
                 ctx.get_store_connection()
@@ -428,8 +428,8 @@ def create_oltp_tools(ctx: _PlatformContext) -> list:
 
         # Need an active store connection
         try:
-            from store import active_connection
-            active_connection()
+            from store.connection import get_connection
+            get_connection()
         except RuntimeError:
             if ctx.store_alias:
                 ctx.get_store_connection()

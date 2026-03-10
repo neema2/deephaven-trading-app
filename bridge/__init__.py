@@ -1,14 +1,10 @@
 """
-Deephaven ↔ Store Bridge — streams object store events into ticking tables
-and pluggable EventSinks.
+Deephaven ↔ Store Bridge — streams object store events into ticking tables.
 
-    StoreBridge   — manages event listener + Deephaven dispatch + sinks
-    EventSink     — ABC for pluggable destinations
-    LakehouseSink — buffers events, flushes via Lakehouse.ingest()
+Users import StoreBridge. Type-mapping helpers are internal.
+The bridge is a library, not a service — embed it wherever makes sense.
 """
 
-from bridge.sinks import EventSink
-from bridge.sinks.lakehouse import LakehouseSink
 from bridge.store_bridge import StoreBridge
 
-__all__ = ["EventSink", "LakehouseSink", "StoreBridge"]
+__all__ = ["StoreBridge"]

@@ -245,7 +245,7 @@ def main():
 
     run = scheduler.fire("heartbeat")
     print(f"  Run: {run.run_id[:8]}...")
-    print(f"  State: {run.state}")
+    print(f"  State: {run._store_state}")
     print(f"  Tasks: {list(run.task_results.keys())}")
     print()
 
@@ -259,7 +259,7 @@ def main():
     run = scheduler.fire("data_pipeline")
     print()
     print(f"  Run: {run.run_id[:8]}...")
-    print(f"  State: {run.state}")
+    print(f"  State: {run._store_state}")
     for name, tr in run.task_results.items():
         status = tr.status if hasattr(tr, 'status') else tr.get('status', '?')
         dur = tr.duration_ms if hasattr(tr, 'duration_ms') else tr.get('duration_ms', 0)
@@ -277,7 +277,7 @@ def main():
     run = scheduler.fire("diamond")
     print()
     print(f"  Run: {run.run_id[:8]}...")
-    print(f"  State: {run.state}")
+    print(f"  State: {run._store_state}")
     for name, tr in run.task_results.items():
         status = tr.status if hasattr(tr, 'status') else tr.get('status', '?')
         dur = tr.duration_ms if hasattr(tr, 'duration_ms') else tr.get('duration_ms', 0)
@@ -295,7 +295,7 @@ def main():
     run = scheduler.fire("fragile")
     print()
     print(f"  Run: {run.run_id[:8]}...")
-    print(f"  State: {run.state}")
+    print(f"  State: {run._store_state}")
     for name, tr in run.task_results.items():
         status = tr.status if hasattr(tr, 'status') else tr.get('status', '?')
         error = ""
@@ -332,7 +332,7 @@ def main():
     runs = scheduler.tick()
     print(f"  Tick fired {len(runs)} schedule(s):")
     for r in runs:
-        print(f"    - {r.schedule_name}: {r.state}")
+        print(f"    - {r.schedule_name}: {r._store_state}")
     print()
 
     # ── 10. Pause / Resume ────────────────────────────────────────────

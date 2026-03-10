@@ -25,13 +25,14 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from store.admin import StoreServer
-from workflow.dbos_engine import WorkflowEngine
-
 from scheduler.cron import is_due
 from scheduler.dag_runner import DAGRunner
 from scheduler.models import Run, Schedule
-from store import UserConnection
+
+if False:  # TYPE_CHECKING
+    from store.client import StoreClient
+    from store.server import StoreServer
+    from workflow.dbos_engine import WorkflowEngine
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ class SchedulerServer:
         """
         self._data_dir = os.path.abspath(data_dir)
         self._store: StoreServer | None = None
-        self._conn: UserConnection | None = None
+        self._client: StoreClient | None = None
         self._engine: WorkflowEngine | None = None
         self._dag_runner: DAGRunner | None = None
         self._last_fire: dict[str, datetime] = {}
@@ -70,11 +71,11 @@ class SchedulerServer:
         self._running = False
         self._thread: threading.Thread | None = None
 
-    # ── Require helpers ──────────────────────────────────────────────
+    # ── Require helpers (narrow Optional → concrete type) ────────────
 
-    def _require_connection(self) -> UserConnection:
-        assert self._conn is not None, "SchedulerServer not started"
-        return self._conn
+    def _require_client(self) -> StoreClient:
+        assert self._client is not None, "SchedulerServer not started"
+        return self._client
 
     def _require_dag_runner(self) -> DAGRunner:
         assert self._dag_runner is not None, "SchedulerServer not started"
@@ -92,19 +93,18 @@ class SchedulerServer:
         Returns:
             self (for chaining).
         """
-        from store.admin import StoreServer
+        from store.client import StoreClient
+        from store.server import StoreServer
         from workflow.factory import create_engine
-
-        from store import connect
 
         # 1. Embedded PG
         self._store = StoreServer(data_dir=self._data_dir)
         self._store.start()
         self._store.provision_user(_SVC_USER, _SVC_PASSWORD)
 
-        # 2. UserConnection
+        # 2. Internal StoreClient
         info = self._store.conn_info()
-        self._conn = connect(
+        self._client = StoreClient(
             host=info["host"], port=info["port"],
             dbname=info["dbname"],
             user=_SVC_USER, password=_SVC_PASSWORD,
@@ -115,7 +115,7 @@ class SchedulerServer:
         self._engine.launch()
 
         # 4. DAGRunner
-        self._dag_runner = DAGRunner(self._engine)
+        self._dag_runner = DAGRunner(self._engine, self._client)
 
         # 5. Background tick loop (optional)
         self._poll_interval = poll_interval
@@ -141,9 +141,9 @@ class SchedulerServer:
                 logger.debug("Engine destroy error (ignored)", exc_info=True)
             self._engine = None
 
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        if self._client is not None:
+            self._client.close()
+            self._client = None
 
         if self._store is not None:
             self._store.stop()
@@ -170,8 +170,7 @@ class SchedulerServer:
 
         Returns the schedule with entity_id populated.
         """
-        self._require_connection()  # ensure active connection
-        entity_id = schedule.save()
+        entity_id = self._require_client().write(schedule)
         logger.info("Registered schedule '%s' (%s) → %s",
                      schedule.name, schedule.cron_expr, entity_id)
         return schedule
@@ -233,8 +232,7 @@ class SchedulerServer:
         sched = self._find_schedule(name)
         if sched is None:
             raise ValueError(f"Schedule '{name}' not found")
-        self._require_connection()  # ensure active connection
-        sched.transition("PAUSED")
+        self._require_client().transition(sched, "PAUSED")
         return sched
 
     def resume(self, name: str) -> Schedule:
@@ -242,8 +240,7 @@ class SchedulerServer:
         sched = self._find_schedule(name)
         if sched is None:
             raise ValueError(f"Schedule '{name}' not found")
-        self._require_connection()  # ensure active connection
-        sched.transition("ACTIVE")
+        self._require_client().transition(sched, "ACTIVE")
         return sched
 
     def delete(self, name: str) -> Schedule:
@@ -251,22 +248,19 @@ class SchedulerServer:
         sched = self._find_schedule(name)
         if sched is None:
             raise ValueError(f"Schedule '{name}' not found")
-        self._require_connection()  # ensure active connection
-        sched.transition("DELETED")
+        self._require_client().transition(sched, "DELETED")
         return sched
 
     # ── Query ─────────────────────────────────────────────────────────
 
     def list_schedules(self) -> list[Schedule]:
         """Return all non-deleted schedules."""
-        self._require_connection()  # ensure active connection
-        all_schedules = Schedule.query()
-        return [s for s in all_schedules if s.state != "DELETED"]
+        all_schedules = self._require_client().query(Schedule)
+        return [s for s in all_schedules if s._store_state != "DELETED"]
 
     def history(self, name: str, limit: int = 20) -> list[Run]:
         """Return past runs for a schedule, most recent first."""
-        self._require_connection()  # ensure active connection
-        all_runs = Run.query(filters={"schedule_name": name})
+        all_runs = self._require_client().query(Run, filters={"schedule_name": name})
         matching = list(all_runs)
         matching.sort(key=lambda r: r.started_at, reverse=True)
         return matching[:limit]
@@ -309,9 +303,9 @@ class SchedulerServer:
             started_at=now.isoformat(),
             retries_left=sched.max_retries,
         )
-        self._require_connection()  # ensure active connection
-        run.save()
-        run.transition("RUNNING")
+        client = self._require_client()
+        client.write(run)
+        client.transition(run, "RUNNING")
 
         try:
             dag_run = self._require_dag_runner().run(sched)
@@ -330,14 +324,14 @@ class SchedulerServer:
                 final_state = "SUCCESS"
 
             run.finished_at = datetime.now(timezone.utc).isoformat()
-            run.save()
-            run.transition(final_state)
+            client.update(run)
+            client.transition(run, final_state)
 
         except Exception as e:
             run.error = str(e)
             run.finished_at = datetime.now(timezone.utc).isoformat()
-            run.save()
-            run.transition("ERROR")
+            client.update(run)
+            client.transition(run, "ERROR")
             logger.exception("Schedule '%s' run failed", sched.name)
 
         return run
@@ -346,16 +340,14 @@ class SchedulerServer:
 
     def _find_schedule(self, name: str) -> Schedule | None:
         """Find a schedule by name."""
-        self._require_connection()  # ensure active connection
-        results = Schedule.query(filters={"name": name})
+        results = self._require_client().query(Schedule, filters={"name": name})
         items = list(results)
         return items[0] if items else None
 
     def _load_active_schedules(self) -> list[Schedule]:
         """Load all schedules in ACTIVE state."""
-        self._require_connection()  # ensure active connection
-        all_schedules = Schedule.query()
-        return [s for s in all_schedules if s.state == "ACTIVE"]
+        all_schedules = self._require_client().query(Schedule)
+        return [s for s in all_schedules if s._store_state == "ACTIVE"]
 
     def _run_loop(self) -> None:
         """Internal blocking loop — runs in background thread."""

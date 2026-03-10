@@ -37,13 +37,17 @@ import logging
 import math
 import os
 import tempfile
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from media import MediaStore as _MediaStoreType
+
 import textwrap
 import threading
 import time as _time
 from datetime import datetime, timezone
 
 import httpx
-from media import MediaStore as _MediaStoreType
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -58,8 +62,7 @@ from ai.eval import EvalCase, EvalRunner
 from ai.team import AgentTeam
 from reactive.agg import group_by, rank_by
 from reactive.computed import computed, effect
-
-from store import Storable
+from store.base import Storable
 
 
 def section(title: str):
@@ -263,7 +266,7 @@ class PortfolioRisk(Storable):
 # ── Global reactive graph instances ─────────────────────────────────────
 
 _positions: dict[str, Position] = {}
-_portfolio_risk: PortfolioRisk = None  # type: ignore[assignment]
+_portfolio_risk: PortfolioRisk = None  # type: ignore
 MD_BASE_URL = None
 _media_store: _MediaStoreType | None = None
 _lakehouse = None      # Lakehouse client for analytics
@@ -448,7 +451,7 @@ def query_analytics(sql: str) -> str:
     """
     if not _lakehouse:
         return json.dumps({"error": "Lakehouse not available"})
-    try:  # type: ignore[unreachable]
+    try:
         data = _lakehouse.query(sql)
         return json.dumps({
             "row_count": len(data),
@@ -764,8 +767,11 @@ def main():
     admin = store.admin_conn()
     bootstrap_chunks_schema(admin, embedding_dim=768)
     admin.close()
-    # Conversations are now Storable — stored in object_events, no separate table needed
-    print("  ✓ Schemas bootstrapped (media search, chunks)")
+    from ai.memory import bootstrap_conversations_table
+    admin = store.admin_conn()
+    bootstrap_conversations_table(admin, grant_to="agent_user")
+    admin.close()
+    print("  ✓ Schemas bootstrapped (media search, chunks, conversations)")
 
     # 2. ObjectStore (S3/MinIO)
     from media.admin import MediaServer
@@ -829,7 +835,7 @@ def main():
         initial_price = live_prices.get(sym, {}).get("price", h["avg_cost"])
         pos = Position(
             symbol=sym,
-            quantity=h["qty"],  # type: ignore[arg-type]
+            quantity=h["qty"],
             avg_cost=h["avg_cost"],
             price=initial_price,
             sector=SECTORS.get(sym, "Unknown"),
@@ -878,10 +884,10 @@ def main():
 
     for doc_info in RESEARCH_DOCS:
         doc = _media_store.upload(
-            doc_info["content"].encode(),  # type: ignore[attr-defined]
-            filename=doc_info["filename"],  # type: ignore[arg-type]
-            title=doc_info["title"],  # type: ignore[arg-type]
-            tags=doc_info["tags"],  # type: ignore[arg-type]
+            doc_info["content"].encode(),
+            filename=doc_info["filename"],
+            title=doc_info["title"],
+            tags=doc_info["tags"],
         )
         print(f"  ✓ {doc.title} ({doc.size} bytes)")
 

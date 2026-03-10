@@ -28,9 +28,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from marketdata.models import CurveTick, FXTick, Tick
-from store.admin import StoreServer
-
-from store import Storable, connect
+from store.base import Storable
+from store.connection import connect
+from store.server import StoreServer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -59,16 +59,26 @@ class Order(Storable):
 
 
 @pytest.fixture(scope="module")
-def server(store_server):
-    """Delegate to session-scoped store_server from conftest.py."""
-    store_server.provision_user("alice", "alice_pw")
-    return store_server
+def server():
+    """Start the Storable object store (pgserver with RLS)."""
+    tmp_dir = tempfile.mkdtemp(prefix="test_lakehouse_store_")
+    srv = StoreServer(data_dir=tmp_dir, admin_password="test_admin_pw")
+    srv.start()
+    srv.provision_user("alice", "alice_pw")
+    yield srv
+    srv.stop()
 
 
 @pytest.fixture(scope="module")
-def stack(lakehouse_server):
-    """Delegate to session-scoped lakehouse_server from conftest.py."""
-    return lakehouse_server
+def stack():
+    """Start the lakehouse stack (PG + Lakekeeper + object store)."""
+    from lakehouse.admin import LakehouseServer
+    # Use /tmp to keep Unix socket path < 103 bytes (macOS limit)
+    tmp_dir = tempfile.mkdtemp(prefix="tst_lh_", dir="/tmp")
+    srv = LakehouseServer(data_dir=tmp_dir)
+    asyncio.run(srv.start())
+    yield srv
+    asyncio.run(srv.stop())
 
 
 @pytest.fixture(scope="module")
@@ -206,15 +216,20 @@ def seeded_ticks(tsdb):
 
 
 @pytest.fixture(scope="module")
-def lakehouse(stack):
-    """Lakehouse instance connected to the stack."""
-    from lakehouse import Lakehouse
-    lh = Lakehouse(
-        catalog_uri=stack.catalog_url,
+def catalog(stack):
+    """PyIceberg REST catalog pointing at Lakekeeper + S3 object store."""
+    from lakehouse.admin import create_catalog
+    return create_catalog(
+        uri=stack.catalog_url,
         s3_endpoint=stack.s3_endpoint,
     )
-    yield lh
-    lh.close()
+
+
+@pytest.fixture(scope="module")
+def iceberg_tables(catalog):
+    """Ensure all Iceberg tables exist."""
+    from lakehouse.admin import ensure_tables
+    return ensure_tables(catalog)
 
 
 @pytest.fixture(scope="module")
@@ -227,22 +242,180 @@ def sync_state_path():
 
 
 class TestLakehouseRoundTrip:
-    """End-to-end: Storable.save() → sync → Lakehouse → DuckDB query."""
+    """End-to-end: Storable.save() → sync → Iceberg → DuckDB query."""
 
     def test_storable_objects_created(self, seeded):
         """Storable objects have entity_ids after .save()."""
         for t in seeded["trades"]:
-            assert t.entity_id is not None
-            assert t.version == 1
-            assert t.event_type == "CREATED"
+            assert t._store_entity_id is not None
+            assert t._store_version == 1
+            assert t._store_event_type == "CREATED"
         for o in seeded["orders"]:
-            assert o.entity_id is not None
+            assert o._store_entity_id is not None
 
-    def test_sync_ticks(self, lakehouse, tsdb, seeded_ticks, sync_state_path):
-        """Sync TSDBBackend ticks → Lakehouse ticks table."""
+    def test_tables_created(self, iceberg_tables):
+        """All 4 Iceberg tables should exist."""
+        assert set(iceberg_tables.keys()) == {"events", "ticks", "bars_daily", "positions"}
+
+    def test_sync_events_from_pg(self, catalog, pg_conn, iceberg_tables, seeded, sync_state_path):
+        """Sync PG object_events → Iceberg events table."""
         from lakehouse.admin import SyncEngine
         sync = SyncEngine(
-            lakehouse=lakehouse,
+            catalog=catalog,
+            state_path=sync_state_path,
+        )
+
+        count = sync.sync_events(pg_conn)
+
+        assert count == seeded["total"]
+        assert sync.state.events_synced == seeded["total"]
+        assert sync.state.events_watermark is not None
+
+    def test_query_events_via_duckdb(self, stack, seeded):
+        """Query synced events via DuckDB SQL — see real Storable type_names."""
+        from lakehouse import Lakehouse
+
+        lq = Lakehouse(
+            catalog_uri=stack.catalog_url,
+            s3_endpoint=stack.s3_endpoint,
+        )
+        try:
+            # Count all events
+            results = lq.sql("SELECT count(*) as cnt FROM lakehouse.default.events")
+            assert results[0]["cnt"] == seeded["total"]
+
+            # Group by type_name — should see real qualified Storable type_names
+            results = lq.sql("""
+                SELECT type_name, count(*) as cnt
+                FROM lakehouse.default.events
+                GROUP BY type_name
+                ORDER BY type_name
+            """)
+            type_names = {r["type_name"] for r in results}
+            assert Trade.type_name() in type_names
+            assert Order.type_name() in type_names
+
+            # Verify data column has real Storable JSON
+            results = lq.sql("""
+                SELECT entity_id, type_name, data
+                FROM lakehouse.default.events
+                LIMIT 1
+            """)
+            assert results[0]["entity_id"] is not None
+            assert "symbol" in results[0]["data"]
+
+        finally:
+            lq.close()
+
+    def test_query_arrow_output(self, stack):
+        """Query returning PyArrow Table."""
+        import pyarrow as pa
+        from lakehouse import Lakehouse
+
+        lq = Lakehouse(
+            catalog_uri=stack.catalog_url,
+            s3_endpoint=stack.s3_endpoint,
+        )
+        try:
+            table = lq.sql_arrow("SELECT * FROM lakehouse.default.events LIMIT 5")
+            assert isinstance(table, pa.Table)
+            assert table.num_rows <= 5
+            assert "entity_id" in table.column_names
+            assert "tx_time" in table.column_names
+        finally:
+            lq.close()
+
+    def test_query_dataframe_output(self, stack):
+        """Query returning Pandas DataFrame."""
+        from lakehouse import Lakehouse
+
+        lq = Lakehouse(
+            catalog_uri=stack.catalog_url,
+            s3_endpoint=stack.s3_endpoint,
+        )
+        try:
+            df = lq.sql_df("SELECT type_name, count(*) as cnt FROM lakehouse.default.events GROUP BY type_name")
+            assert len(df) > 0
+            assert "type_name" in df.columns
+            assert "cnt" in df.columns
+        finally:
+            lq.close()
+
+    def test_incremental_sync(self, db, catalog, pg_conn, iceberg_tables, seeded, sync_state_path):
+        """Second sync picks up only newly saved Storable objects."""
+        from lakehouse.admin import SyncEngine
+        sync = SyncEngine(
+            catalog=catalog,
+            state_path=sync_state_path,
+        )
+
+        # First: no new events since last sync
+        count = sync.sync_events(pg_conn)
+        assert count == 0
+
+        # Save 3 more Trade objects via public API
+        for i in range(3):
+            Trade(symbol="NVDA", quantity=100 + i, price=800.0, side="BUY").save()
+
+        # Sync again — should pick up only the 3 new events
+        count = sync.sync_events(pg_conn)
+        assert count == 3
+        assert sync.state.events_synced == seeded["total"] + 3
+
+    def test_list_tables(self, stack):
+        """Lakehouse.tables() lists available tables."""
+        from lakehouse import Lakehouse
+
+        lq = Lakehouse(
+            catalog_uri=stack.catalog_url,
+            s3_endpoint=stack.s3_endpoint,
+        )
+        try:
+            tables = lq.tables()
+            assert "events" in tables
+            assert "ticks" in tables
+            assert "bars_daily" in tables
+            assert "positions" in tables
+        finally:
+            lq.close()
+
+    def test_row_count(self, stack, seeded):
+        """Lakehouse.row_count() returns correct count after syncs."""
+        from lakehouse import Lakehouse
+
+        lq = Lakehouse(
+            catalog_uri=stack.catalog_url,
+            s3_endpoint=stack.s3_endpoint,
+        )
+        try:
+            count = lq.row_count("events")
+            # 10 original + 3 from incremental = 13
+            assert count == seeded["total"] + 3
+        finally:
+            lq.close()
+
+    def test_table_info(self, stack):
+        """Lakehouse.table_info() returns column metadata."""
+        from lakehouse import Lakehouse
+
+        lq = Lakehouse(
+            catalog_uri=stack.catalog_url,
+            s3_endpoint=stack.s3_endpoint,
+        )
+        try:
+            info = lq.table_info("events")
+            col_names = [c["column_name"] for c in info]
+            assert "entity_id" in col_names
+            assert "type_name" in col_names
+            assert "tx_time" in col_names
+        finally:
+            lq.close()
+
+    def test_sync_ticks(self, catalog, tsdb, iceberg_tables, seeded_ticks, sync_state_path):
+        """Sync TSDBBackend ticks → Iceberg ticks table."""
+        from lakehouse.admin import SyncEngine
+        sync = SyncEngine(
+            catalog=catalog,
             state_path=sync_state_path,
         )
 
@@ -494,7 +667,7 @@ class TestLakehouseRoundTrip:
         finally:
             lh.close()
 
-    def test_transform_append(self, stack, seeded_ticks):
+    def test_transform_append(self, stack, seeded):
         """Transform mode=append: SQL result written to new table."""
         import uuid as _uuid
 
@@ -505,7 +678,7 @@ class TestLakehouseRoundTrip:
         try:
             count = lh.transform(
                 tbl,
-                "SELECT tick_type, count(*) as cnt FROM lakehouse.default.ticks GROUP BY tick_type",
+                "SELECT type_name, count(*) as cnt FROM lakehouse.default.events GROUP BY type_name",
                 mode="append",
             )
             assert count > 0
@@ -513,13 +686,13 @@ class TestLakehouseRoundTrip:
             # Query back
             results = lh.query(f"SELECT * FROM lakehouse.default.{tbl} ORDER BY cnt DESC")
             assert len(results) > 0
-            assert "tick_type" in results[0]
+            assert "type_name" in results[0]
             assert "cnt" in results[0]
             assert "_batch_id" in results[0]
         finally:
             lh.close()
 
-    def test_transform_snapshot(self, stack, seeded_ticks):
+    def test_transform_snapshot(self, stack, seeded):
         """Transform mode=snapshot: SQL materialized view with batch history."""
         import uuid as _uuid
 
@@ -531,7 +704,7 @@ class TestLakehouseRoundTrip:
             # First run
             count1 = lh.transform(
                 tbl,
-                "SELECT tick_type, count(*) as cnt FROM lakehouse.default.ticks GROUP BY tick_type",
+                "SELECT type_name, count(*) as cnt FROM lakehouse.default.events GROUP BY type_name",
                 mode="snapshot",
             )
             assert count1 > 0
@@ -542,7 +715,7 @@ class TestLakehouseRoundTrip:
             # Second run (same query, new batch)
             count2 = lh.transform(
                 tbl,
-                "SELECT tick_type, count(*) as cnt FROM lakehouse.default.ticks GROUP BY tick_type",
+                "SELECT type_name, count(*) as cnt FROM lakehouse.default.events GROUP BY type_name",
                 mode="snapshot",
             )
             assert count2 > 0
@@ -556,129 +729,3 @@ class TestLakehouseRoundTrip:
             assert len(old) == count1
         finally:
             lh.close()
-
-class TestEventBridgeLakehouseSink:
-    """End-to-end: Storable.save() → StoreBridge + LakehouseSink → Lakehouse → DuckDB query."""
-
-    def test_events_flow_through_lakehouse_sink(self, server, stack):
-        """
-        Write Storable objects → StoreBridge dispatches to LakehouseSink → flush → query.
-
-        This replaces the old sync_events() flow with the new EventBridge architecture.
-        Events go through Lakehouse.ingest() — same pipeline as all other data.
-        """
-        import time
-
-        from lakehouse import Lakehouse
-
-        from bridge import LakehouseSink, StoreBridge
-        from store import connect
-
-        info = server.conn_info()
-
-        # Connect as alice for Storable writes
-        db = connect(
-            host=info["host"], port=info["port"], dbname=info["dbname"],
-            user="alice", password="alice_pw",
-        )
-
-        # Create Lakehouse + LakehouseSink
-        lh = Lakehouse(catalog_uri=stack.catalog_url, s3_endpoint=stack.s3_endpoint)
-        sink = LakehouseSink(lh)
-        bridge = StoreBridge(
-            host=info["host"], port=info["port"], dbname=info["dbname"],
-            user="alice", password="alice_pw",
-            subscriber_id="test_lakehouse_sink",
-        )
-        bridge.register(Trade)
-        bridge.register(Order)
-        bridge.add_sink(sink)
-        bridge.start()
-
-        try:
-            # Write objects via public API → triggers ChangeEvents
-            t1 = Trade(symbol="SINK_TEST", quantity=42, price=999.0, side="BUY")
-            t1.save()
-            t2 = Trade(symbol="SINK_TEST", quantity=10, price=500.0, side="SELL")
-            t2.save()
-            o1 = Order(symbol="SINK_TEST", quantity=100, price=1000.0, side="BUY")
-            o1.save()
-
-            # Give LISTEN/NOTIFY time to deliver events
-            time.sleep(2)
-
-            # Flush sink → Lakehouse.ingest()
-            flushed = sink.flush()
-            assert flushed == 3, f"Expected 3 events flushed, got {flushed}"
-
-            # Query via DuckDB
-            results = lh.sql("""
-                SELECT entity_id, type_name, event_type, version
-                FROM lakehouse.default.store_events
-                ORDER BY entity_id
-            """)
-            assert len(results) >= 3
-
-            type_names = {r["type_name"] for r in results}
-            assert Trade.type_name() in type_names
-            assert Order.type_name() in type_names
-
-            # All should be CREATED events
-            event_types = {r["event_type"] for r in results}
-            assert "CREATED" in event_types
-
-        finally:
-            bridge.stop()
-            lh.close()
-            db.close()
-
-    def test_lakehouse_sink_incremental_flush(self, server, stack):
-        """Multiple flush() calls are incremental — only new events are written."""
-        import time
-
-        from lakehouse import Lakehouse
-
-        from bridge import LakehouseSink, StoreBridge
-        from store import connect
-
-        info = server.conn_info()
-        db = connect(
-            host=info["host"], port=info["port"], dbname=info["dbname"],
-            user="alice", password="alice_pw",
-        )
-
-        lh = Lakehouse(catalog_uri=stack.catalog_url, s3_endpoint=stack.s3_endpoint)
-        sink = LakehouseSink(lh)
-        bridge = StoreBridge(
-            host=info["host"], port=info["port"], dbname=info["dbname"],
-            user="alice", password="alice_pw",
-            subscriber_id="test_lh_sink_incr",
-        )
-        bridge.register(Trade)
-        bridge.add_sink(sink)
-        bridge.start()
-
-        try:
-            # First batch
-            Trade(symbol="INCR_A", quantity=1, price=10.0, side="BUY").save()
-            time.sleep(2)
-            count1 = sink.flush()
-            assert count1 == 1
-
-            # Second batch
-            Trade(symbol="INCR_B", quantity=2, price=20.0, side="SELL").save()
-            Trade(symbol="INCR_C", quantity=3, price=30.0, side="BUY").save()
-            time.sleep(2)
-            count2 = sink.flush()
-            assert count2 == 2
-
-            # Empty flush
-            count3 = sink.flush()
-            assert count3 == 0
-
-        finally:
-            bridge.stop()
-            lh.close()
-            db.close()
-
-

@@ -35,10 +35,11 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ai.agent import AgentResult
-from ai.client import AI
+if TYPE_CHECKING:
+    from ai.agent import AgentResult
+    from ai.client import AI
 
 logger = logging.getLogger(__name__)
 
@@ -444,7 +445,7 @@ class AgentEval:
                 if isinstance(obs, str):
                     data = __import__("json").loads(obs)
                 else:
-                    data = obs  # type: ignore[unreachable]
+                    data = obs
 
                 # Track created schemas
                 if isinstance(data, dict):
@@ -467,7 +468,7 @@ class AgentEval:
         """Use LLM-as-judge to score based on a rubric."""
         assert self._judge is not None
         try:
-            from ai import Message
+            from ai._types import Message
             response = self._judge.generate(
                 [
                     Message(role="system", content=(

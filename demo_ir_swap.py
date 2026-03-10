@@ -33,6 +33,7 @@ import sys
 import threading
 from collections import deque
 from datetime import datetime, timezone
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -61,9 +62,8 @@ print(f"  Market data server started on port {_md_server.port}")
 from dataclasses import dataclass, field
 
 from reactive.computed import computed, effect
+from store.base import Storable
 from streaming import agg, flush, get_tables, ticking
-
-from store import Storable
 
 # Publish queue: @effect on YieldCurvePoint.rate enqueues CurveTicks here;
 # the WS consumer drains them and sends back to the market data hub.
@@ -115,7 +115,7 @@ class YieldCurvePoint(Storable):
         fx_base = self.fx_base_mid
         if fx_base == 0.0:
             return self.base_rate
-        pct_move = (self.fx_ref.mid - fx_base) / fx_base  # type: ignore[attr-defined]
+        pct_move = (self.fx_ref.mid - fx_base) / fx_base
         return max(0.0001, self.base_rate + self.sensitivity * pct_move)
 
     @computed
@@ -153,7 +153,7 @@ class InterestRateSwap(Storable):
     def float_rate(self):
         if self.curve_ref is None:
             return 0.0
-        return self.curve_ref.rate  # type: ignore[attr-defined]
+        return self.curve_ref.rate
 
     @computed
     def fixed_leg_pv(self):

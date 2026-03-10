@@ -1,6 +1,5 @@
 """
-StoreBridge — streams object store events into Deephaven ticking tables
-and any registered EventSinks.
+StoreBridge — streams object store events into Deephaven ticking tables.
 
 The bridge is a library, not a service. Embed it in:
 - The store server process (always-on, central bridging)
@@ -10,11 +9,7 @@ Usage:
     bridge = StoreBridge(host=host, port=port, dbname=dbname,
                          user="bridge_user", password="bridge_pw")
     bridge.register(Order)
-    bridge.register(Trade, filter=lambda d: d.get("symbol") == "AAPL")
-
-    # Optional: add extra sinks
-    bridge.add_sink(LakehouseSink(catalog))
-
+    bridge.register(Trade, filter=Field("symbol") == Const("AAPL"))
     bridge.start()
 
     orders_raw  = bridge.table(Order)
@@ -24,15 +19,17 @@ Usage:
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING
 
-from store.admin import EventBus, SubscriptionListener
+from store.base import Storable
+from store.client import StoreClient
+from store.subscriptions import ChangeEvent, EventBus, SubscriptionListener
 from streaming import TickingTable
 
-from bridge.sinks import EventSink
 from bridge.type_mapping import extract_row, infer_schema
-from store import ChangeEvent, Storable, connect
+
+if TYPE_CHECKING:
+    from reactive.expr import Expr
 
 
 class _Registration:
@@ -47,7 +44,7 @@ class _Registration:
         "type_name",
     )
 
-    def __init__(self, storable_cls: type[Storable], ticking: TickingTable, column_names: list[str], filter_expr: Callable[[dict], bool] | None) -> None:
+    def __init__(self, storable_cls: type[Storable], ticking: TickingTable, column_names: list[str], filter_expr: Expr | None) -> None:
         self.storable_cls = storable_cls
         self.type_name = storable_cls.type_name()
         self.ticking = ticking
@@ -76,50 +73,51 @@ class StoreBridge:
     def __init__(self, alias_or_host: str | None = None, port: int | None = None, dbname: str | None = None,
                  user: str | None = None, password: str | None = None, *,
                  host: str | None = None,
-                 subscriber_id: str | None = "deephaven_bridge") -> None:
-        # Store raw connection params — resolved via connect() in start()
-        self._alias_or_host = alias_or_host
-        self._host = host
-        self._port = port or 5432
-        self._dbname = dbname or "postgres"
-        self._user = user
-        self._password = password
+                 subscriber_id: str = "deephaven_bridge") -> None:
+        # Resolve alias vs explicit params
+        if alias_or_host is not None and port is None and host is None:
+            # Looks like an alias — try to resolve
+            from store.connection import _resolve_alias
+            resolved = _resolve_alias(alias_or_host)
+            if resolved is not None:
+                self._conn_params = dict(
+                    host=resolved["host"], port=resolved["port"],
+                    dbname=resolved.get("dbname", "postgres"),
+                    user=user, password=password,
+                )
+            else:
+                # Treat as explicit host (backward compat)
+                self._conn_params = dict(
+                    host=alias_or_host, port=port or 5432,
+                    dbname=dbname or "postgres",
+                    user=user, password=password,
+                )
+        else:
+            self._conn_params = dict(
+                host=host or alias_or_host, port=port or 5432,
+                dbname=dbname or "postgres",
+                user=user, password=password,
+            )
         self._subscriber_id = subscriber_id
         self._registrations: dict[str, _Registration] = {}  # type_name → reg
-        self._sinks: list[EventSink] = []  # pluggable extra sinks
         self._bus = EventBus()
         self._listener: SubscriptionListener | None = None
-        self._conn: Any = None  # set in start()
+        self._client: StoreClient | None = None
         self._started = False
 
-    def _require_connection(self) -> Any:
-        assert self._conn is not None, "StoreBridge not started"
-        return self._conn
-
-    # ── Sinks ─────────────────────────────────────────────────────
-
-    def add_sink(self, sink: EventSink) -> None:
-        """Register an EventSink to receive all ChangeEvents.
-
-        Must be called before start(). Sinks receive raw ChangeEvents
-        in addition to the Deephaven ticking-table dispatch.
-
-        Args:
-            sink: An EventSink (e.g. LakehouseSink).
-        """
-        if self._started:
-            raise RuntimeError("Cannot add sinks after start()")
-        self._sinks.append(sink)
+    def _require_client(self) -> StoreClient:
+        assert self._client is not None, "StoreBridge not started"
+        return self._client
 
     # ── Registration ─────────────────────────────────────────────────
 
-    def register(self, storable_cls: type[Storable], *, filter: Callable[[dict], bool] | None = None, columns: dict | None = None) -> None:
+    def register(self, storable_cls: type[Storable], *, filter: Expr | None = None, columns: dict | None = None) -> None:
         """Register a Storable type to be bridged to a ticking table.
 
         Args:
             storable_cls: @dataclass Storable subclass (e.g. Order, Trade).
-            filter: Optional predicate ``(dict) -> bool``. Only events where
-                    ``filter(obj_data_dict)`` is truthy are shipped.
+            filter: Optional Expr predicate. Only events where
+                    filter.eval(obj_data_dict) is truthy are shipped.
             columns: Optional dict override for column schema
                      (Python types). If None, auto-generated from
                      dataclass fields.
@@ -160,28 +158,17 @@ class StoreBridge:
         if self._started:
             return
 
-        # Connect via public API — connect() handles alias resolution
-        assert self._user is not None, "StoreBridge requires user"
-        assert self._password is not None, "StoreBridge requires password"
-        self._conn = connect(
-            self._alias_or_host,
-            host=self._host,
-            port=self._port,
-            dbname=self._dbname,
-            user=self._user,
-            password=self._password,
-        )
+        # StoreClient for read-back (uses same PG connection params)
+        self._client = StoreClient(**self._conn_params)
 
         # Wire EventBus → _dispatch
         self._bus.on_all(self._dispatch)
 
         # Start SubscriptionListener (PG LISTEN/NOTIFY + durable catch-up)
-        # SubscriptionListener needs raw PG params — use resolved conn params
-        conn_params = self._conn._conn_params  # resolved by connect()
         self._listener = SubscriptionListener(
             event_bus=self._bus,
             subscriber_id=self._subscriber_id,
-            **conn_params,
+            **self._conn_params,
         )
         self._listener.start()
         self._started = True
@@ -191,45 +178,30 @@ class StoreBridge:
         if self._listener:
             self._listener.stop()
             self._listener = None
-        # Flush all sinks before closing
-        for sink in self._sinks:
-            try:
-                sink.close()
-            except Exception:
-                pass
-        if self._conn:
-            self._conn.close()
-            self._conn = None
+        if self._client:
+            self._client.close()
+            self._client = None
         self._started = False
 
     # ── Internal dispatch ────────────────────────────────────────────
 
     def _dispatch(self, event: ChangeEvent) -> None:
-        """Called for every ChangeEvent. Route to sinks and ticking tables."""
-        # Dispatch to all registered EventSinks (LakehouseSink, etc.)
-        for sink in self._sinks:
-            try:
-                sink.on_event(event)
-            except Exception:
-                pass
-
-        # Dispatch to Deephaven ticking tables (existing behavior)
+        """Called for every ChangeEvent. Route to the correct writer."""
         reg = self._registrations.get(event.type_name)
         if reg is None:
             return  # Not a registered type — ignore
 
         try:
-            # Activate bridge connection in this thread (may be listener's bg thread)
-            self._conn.activate()
-            obj = reg.read_cls.find(event.entity_id)
+            # Read back the full object from the store
+            obj = self._require_client().read(reg.read_cls, event.entity_id)
         except Exception:
             return  # Object not readable (deleted, permission, etc.)
 
-        # Apply filter predicate if configured
+        # Apply Expr filter if configured
         if reg.filter_expr is not None:
             try:
-                obj_data: dict[str, Any] = dataclasses.asdict(obj) if dataclasses.is_dataclass(obj) else {}  # type: ignore[arg-type]
-                if not reg.filter_expr(obj_data):
+                obj_data = dataclasses.asdict(obj) if dataclasses.is_dataclass(obj) else {}  # type: ignore[arg-type]
+                if not reg.filter_expr.eval(obj_data):
                     return
             except Exception:
                 return  # Filter evaluation error — skip

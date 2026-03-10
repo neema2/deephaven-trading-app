@@ -170,7 +170,7 @@ def create_timeseries_tools(ctx: _PlatformContext) -> list:
             timezone_str: Source timezone (e.g. "US/Eastern", "Europe/London"). Data is normalized to UTC.
         """
         if ctx.lakehouse is None:
-            return json.dumps({"error": "No Lakehouse configured"})  # type: ignore[unreachable]
+            return json.dumps({"error": "No Lakehouse configured"})
 
         try:
             # Build a SQL that reads, normalizes, and ingests

@@ -83,8 +83,8 @@ def create_query_tools(ctx: _PlatformContext) -> list:
             return json.dumps({"error": f"Type '{type_name}' not found in OLTP store."})
 
         try:
-            from store import active_connection
-            active_connection()
+            from store.connection import get_connection
+            get_connection()
         except RuntimeError:
             if ctx.store_alias:
                 ctx.get_store_connection()
@@ -96,12 +96,11 @@ def create_query_tools(ctx: _PlatformContext) -> list:
             rows = []
             for obj in result:
                 row = {}
-                if dataclasses.is_dataclass(obj):
-                    for f in dataclasses.fields(obj):  # type: ignore[unreachable]
-                        if not f.name.startswith("_"):
-                            row[f.name] = getattr(obj, f.name)
-                if obj.entity_id:
-                    row["_entity_id"] = obj.entity_id
+                for f in dataclasses.fields(obj):
+                    if not f.name.startswith("_"):
+                        row[f.name] = getattr(obj, f.name)
+                if obj._store_entity_id:
+                    row["_entity_id"] = obj._store_entity_id
                 rows.append(row)
             return json.dumps({
                 "source": "oltp",
@@ -123,7 +122,7 @@ def create_query_tools(ctx: _PlatformContext) -> list:
             sql: SQL query to execute.
         """
         if ctx.lakehouse is None:
-            return json.dumps({"error": "No Lakehouse configured."})  # type: ignore[unreachable]
+            return json.dumps({"error": "No Lakehouse configured."})
         try:
             rows = ctx.lakehouse.query(sql)
             return json.dumps({
@@ -191,7 +190,7 @@ def create_query_tools(ctx: _PlatformContext) -> list:
             limit: Maximum results (default 10).
         """
         if ctx.media_store is None:
-            return json.dumps({"error": "No MediaStore configured."})  # type: ignore[unreachable]
+            return json.dumps({"error": "No MediaStore configured."})
         try:
             ms = ctx.media_store
             if mode == "semantic":
@@ -253,7 +252,7 @@ def create_query_tools(ctx: _PlatformContext) -> list:
                 cls = ctx.get_storable_type(name)
                 fields: list[str] = []
                 if cls and dataclasses.is_dataclass(cls):
-                    fields = [f.name for f in dataclasses.fields(cls) if not f.name.startswith("_")]  # type: ignore[arg-type, unreachable]
+                    fields = [f.name for f in dataclasses.fields(cls) if not f.name.startswith("_")]  # type: ignore[arg-type]
                 catalog["oltp"].append({"name": name, "fields": fields})
 
         # Lakehouse tables
@@ -300,7 +299,7 @@ def create_query_tools(ctx: _PlatformContext) -> list:
         # Try OLTP
         cls = ctx.get_storable_type(name)
         if cls and dataclasses.is_dataclass(cls):
-            fields = [  # type: ignore[unreachable]
+            fields = [
                 {"name": f.name, "type": f.type.__name__ if isinstance(f.type, type) else str(f.type)}
                 for f in dataclasses.fields(cls) if not f.name.startswith("_")
             ]

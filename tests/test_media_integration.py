@@ -13,18 +13,41 @@ import pytest
 
 
 @pytest.fixture(scope="session")
-def _provision_media_user(store_server):
-    """Provision media_user on the shared store_server."""
-    store_server.provision_user("media_user", "media_pw")
-    return store_server
+def pg_server():
+    """Start an embedded PG server for the media tests."""
+    import tempfile
 
+    from store.server import StoreServer
+    server = StoreServer(data_dir=tempfile.mkdtemp(prefix="test_media_store_"))
+    server.start()
+    server.provision_user("media_user", "media_pw")
+
+    yield server
+    server.stop()
 
 
 @pytest.fixture(scope="session")
-def store_conn(_provision_media_user):
+def s3_server():
+    """Start S3-compatible object store."""
+    import tempfile
+
+    import objectstore
+    loop = asyncio.new_event_loop()
+    store = loop.run_until_complete(objectstore.configure(
+        "minio",
+        data_dir=tempfile.mkdtemp(prefix="test_media_s3_"),
+        api_port=9012,
+        console_port=9013,
+    ))
+    yield store
+    # atexit handles cleanup
+
+
+@pytest.fixture(scope="session")
+def store_conn(pg_server):
     """Connect to the object store as media_user."""
     from store.connection import connect
-    info = _provision_media_user.conn_info()
+    info = pg_server.conn_info()
     conn = connect(user="media_user", host=info["host"], port=info["port"],
                     dbname=info["dbname"], password="media_pw")
     yield conn
@@ -32,21 +55,21 @@ def store_conn(_provision_media_user):
 
 
 @pytest.fixture(scope="session")
-def search_schema(_provision_media_user, store_conn):
+def search_schema(pg_server, store_conn):
     """Bootstrap the document_search table."""
     from media.models import bootstrap_search_schema
-    admin_conn = _provision_media_user.admin_conn()
+    admin_conn = pg_server.admin_conn()
     bootstrap_search_schema(admin_conn)
     admin_conn.close()
     return True
 
 
 @pytest.fixture(scope="session")
-def media_store(media_server, store_conn, search_schema):
+def media_store(s3_server, store_conn, search_schema):
     """Create a MediaStore connected to test object store."""
     from media import MediaStore
     ms = MediaStore(
-        s3_endpoint="localhost:9102",
+        s3_endpoint="localhost:9012",
         s3_access_key="minioadmin",
         s3_secret_key="minioadmin",
         s3_bucket="test-media",
@@ -71,7 +94,7 @@ class TestMediaIntegration:
             tags=["test", "finance"],
         )
 
-        assert doc.entity_id is not None
+        assert doc._store_entity_id is not None
         assert doc.title == "Test Document"
         assert doc.filename == "test_doc.txt"
         assert doc.content_type == "text/plain"
@@ -136,7 +159,7 @@ and *volatility surface* construction.
         import pymupdf
         doc = pymupdf.open()
         page = doc.new_page()
-        page.insert_text((72, 72), "Collateralized debt obligation pricing\n"  # type: ignore[attr-defined]
+        page.insert_text((72, 72), "Collateralized debt obligation pricing\n"
                          "using Monte Carlo simulation for tranche valuation.", fontsize=12)
         pdf_bytes = doc.tobytes()
         doc.close()
@@ -194,7 +217,7 @@ and *volatility surface* construction.
         content = b"Test download by ID"
         doc = media_store.upload(content, filename="by_id.txt")
 
-        downloaded = media_store.download(str(doc.entity_id))
+        downloaded = media_store.download(str(doc._store_entity_id))
         assert downloaded == content
 
     def test_search_full_text(self, media_store):
@@ -257,7 +280,7 @@ and *volatility surface* construction.
 
         # find
         from media.models import Document
-        found = Document.find(doc.entity_id)
+        found = Document.find(doc._store_entity_id)
         assert found is not None
         assert found.title == "Storable Test"
 
@@ -269,7 +292,7 @@ and *volatility surface* construction.
         """Delete a document — soft delete, S3 object retained."""
         content = b"To be deleted"
         doc = media_store.upload(content, filename="delete_me.txt", title="Delete Me")
-        entity_id = doc.entity_id
+        entity_id = doc._store_entity_id
 
         media_store.delete(doc)
 
@@ -280,5 +303,5 @@ and *volatility surface* construction.
 
         # But S3 object is still there (retained for audit)
         from objectstore import S3Client
-        s3 = S3Client(endpoint="localhost:9102", bucket="test-media")
+        s3 = S3Client(endpoint="localhost:9012", bucket="test-media")
         assert s3.exists(doc.s3_key)

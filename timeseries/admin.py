@@ -20,9 +20,9 @@ import logging
 from typing import Any
 
 from timeseries._registry import register_alias as _register_alias
-from timeseries.backends.questdb.manager import QuestDBManager
-from timeseries.consumer import TSDBConsumer
-from timeseries.factory import create_backend
+
+if False:  # TYPE_CHECKING
+    from timeseries.backends.questdb.manager import QuestDBManager
 
 logger = logging.getLogger(__name__)
 
@@ -108,4 +108,4 @@ class TsdbServer:
         await self.stop()
 
 
-__all__ = ["TSDBConsumer", "TsdbServer", "create_backend"]
+__all__ = ["TsdbServer"]

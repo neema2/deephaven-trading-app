@@ -11,7 +11,6 @@ REGISTRY = ColumnRegistry()
 
 # Import domain modules to populate the registry
 from store.columns import (
-    ai,  # noqa: F401
     finance,  # noqa: F401
     general,  # noqa: F401
     media,  # noqa: F401

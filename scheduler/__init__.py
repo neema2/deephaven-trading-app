@@ -8,7 +8,7 @@ User API::
 
     @schedule("*/5 * * * *")
     def ingest_events():
-        Lakehouse("demo").sync_ticks()
+        Lakehouse("demo").sync_events()
 
     @schedule("0 2 * * *", name="etl")
     def extract(): ...
