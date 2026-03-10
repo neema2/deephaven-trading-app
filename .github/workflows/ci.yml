@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Full test suite
+    runs-on: macos-latest
+    env:
+      # Gemini API key for demo tests that exercise AI features
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21 (Deephaven + QuestDB)
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install all dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[streaming,marketdata,timeseries,lakehouse,media,ai,datacube,agents,dev]"
+
+      - name: Make test scripts executable
+        run: chmod +x run_all_tests.sh run_tests.sh run_demo_tests.sh
+
+      - name: Run full test suite
+        run: ./run_all_tests.sh
