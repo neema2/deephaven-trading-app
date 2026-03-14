@@ -59,11 +59,9 @@ def _zonkyio_jar_url() -> str:
 class EmbeddedPGManager:
     """
     Manages a full PostgreSQL instance using zonkyio embedded-postgres-binaries.
-
     Unlike pgserver (which ships a minimal PG without ICU/OpenSSL/pgcrypto),
     zonkyio binaries include the full contrib suite. This PG instance is used
     exclusively by Lakekeeper as its catalog backend.
-
     Lifecycle: download → initdb → pg_ctl start (TCP) → pg_ctl stop.
     """
 
@@ -81,8 +79,8 @@ class EmbeddedPGManager:
 
     @property
     def pg_url(self) -> str:
-        """TCP connection URL for Lakekeeper."""
-        return f"postgres://{self._user}@localhost:{self._port}/postgres"
+        """Connection URL for Lakekeeper."""
+        return f"postgresql://{self._user}@localhost:{self._port}/postgres"
 
     @property
     def port(self) -> int:
@@ -95,7 +93,7 @@ class EmbeddedPGManager:
         return self._pg_home / "bin" / "initdb"
 
     async def start(self) -> None:
-        """Download binaries if needed, init pgdata, start PG with TCP."""
+        """Start PG using zonkyio binaries."""
         self._ensure_binaries()
 
         if not (self._pgdata / "PG_VERSION").exists():
@@ -104,10 +102,9 @@ class EmbeddedPGManager:
         # Check if already running
         pid_file = self._pgdata / "postmaster.pid"
         if pid_file.exists():
-            # Try to connect
             try:
-                from db import connect as _db_connect
-                conn = _db_connect(
+                import psycopg2
+                conn = psycopg2.connect(
                     host="localhost", port=self._port,
                     user=self._user, dbname="postgres",
                     connect_timeout=2,
@@ -116,15 +113,16 @@ class EmbeddedPGManager:
                 logger.info("Embedded PG already running on port %d", self._port)
                 return
             except Exception:
-                # Stale pid file — stop and restart
+                # Stale pid file - stop and restart
+                logger.info("Stale postmaster.pid found, stopping...")
                 subprocess.run(
                     [str(self._pg_ctl()), "stop", "-D", str(self._pgdata), "-m", "fast"],
                     capture_output=True,
                 )
-                import time
-                time.sleep(1)
+                await asyncio.sleep(1)
 
-        # Start with TCP
+        # Start with TCP and ICU support
+        logger.info("Starting Embedded PG on port %d...", self._port)
         log_file = self._data_dir / "pg.log"
         result = subprocess.run(
             [str(self._pg_ctl()), "start", "-D", str(self._pgdata), "-w",
@@ -135,49 +133,21 @@ class EmbeddedPGManager:
         )
         if result.returncode != 0:
             stderr = result.stderr.decode()[:500]
-            stdout = result.stdout.decode()[:500]
-            log_tail = ""
-            if log_file.exists():
-                log_tail = log_file.read_text()[-500:]
-            raise RuntimeError(
-                f"Failed to start embedded PG: {stderr}\n{stdout}\nLog: {log_tail}"
-            )
+            raise RuntimeError(f"Failed to start embedded PG: {stderr}")
 
-        # Wait for ready
-        from db import connect as _db_connect
-        for _ in range(10):
-            try:
-                conn = _db_connect(
-                    host="localhost", port=self._port,
-                    user=self._user, dbname="postgres",
-                    connect_timeout=2,
-                )
-                conn.close()
-                logger.info("Embedded PG started on port %d", self._port)
-                return
-            except Exception:
-                await asyncio.sleep(0.5)
-
-        raise RuntimeError(f"Embedded PG not ready after start (port {self._port})")
+        logger.info("Embedded PG started on port %d", self._port)
 
     async def stop(self) -> None:
         """Stop PG via pg_ctl."""
-        pg_ctl = self._pg_ctl()
-        if not pg_ctl.exists():
-            return
-        result = subprocess.run(
-            [str(pg_ctl), "stop", "-D", str(self._pgdata), "-m", "fast"],
-            capture_output=True,
-            timeout=15,
-        )
-        if result.returncode == 0:
+        if (self._pgdata / "postmaster.pid").exists():
+            subprocess.run(
+                [str(self._pg_ctl()), "stop", "-D", str(self._pgdata), "-m", "fast"],
+                capture_output=True,
+            )
             logger.info("Embedded PG stopped")
-        else:
-            logger.debug("Embedded PG stop returned %d (may not have been running)",
-                         result.returncode)
 
     def _run_initdb(self) -> None:
-        """Initialize pgdata directory."""
+        """Initialize pgdata directory with ICU support."""
         self._pgdata.mkdir(parents=True, exist_ok=True)
         initdb = self._initdb()
         result = subprocess.run(
@@ -200,52 +170,87 @@ class EmbeddedPGManager:
 
         logger.info("Initialized pgdata at %s", self._pgdata)
 
-    def _ensure_binaries(self) -> None:
-        """Download and extract zonkyio PG binaries if not present."""
+    def _ensure_binaries(self) -> Path:
+        """Ensure zonkyio PG binaries are available, downloading if needed."""
         pg_ctl = self._pg_ctl()
         if pg_ctl.exists() and os.access(pg_ctl, os.X_OK):
-            return
+            return pg_ctl
 
-        logger.info("Downloading zonkyio PG %s binaries...", ZONKYIO_PG_VERSION)
-        jar_url = _zonkyio_jar_url()
+        # Use project-level cache to avoid downloading per-test
+        project_root = Path(__file__).resolve().parent.parent
+        cache_dir = Path(os.environ.get("PY_FLOW_CACHE_DIR", project_root / ".cache" / "lakehouse"))
+        global_pg_home = cache_dir / f"pg-{ZONKYIO_PG_VERSION}"
+        global_pg_ctl = global_pg_home / "bin" / "pg_ctl"
 
-        with tempfile.TemporaryDirectory() as tmpdir_str:
-            tmpdir = Path(tmpdir_str)
-            jar_path = tmpdir / "pg.jar"
-
-            # Download the JAR
-            with httpx.stream("GET", jar_url, follow_redirects=True, timeout=120) as resp:
-                resp.raise_for_status()
-                with open(jar_path, "wb") as f:
-                    for chunk in resp.iter_bytes(chunk_size=65536):
-                        f.write(chunk)
-            logger.info("Downloaded (%d MB)", jar_path.stat().st_size // (1024 * 1024))
-
-            # JAR is a ZIP containing a .txz
-            extract_dir = tmpdir / "jar"
-            with zipfile.ZipFile(jar_path) as zf:
+        if not (global_pg_ctl.exists() and os.access(global_pg_ctl, os.X_OK)):
+            url = _zonkyio_jar_url()
+            logger.info("Zonkyio PG binaries not found in cache, downloading from %s...", url)
+    
+            global_pg_home.parent.mkdir(parents=True, exist_ok=True)
+            jar_path = global_pg_home.parent / "pg.jar"
+    
+            import time
+            for attempt in range(5):
+                try:
+                    with httpx.stream("GET", url, follow_redirects=True, timeout=httpx.Timeout(300.0, read=300.0)) as resp:
+                        resp.raise_for_status()
+                        with open(jar_path, "wb") as f:
+                            for chunk in resp.iter_bytes(chunk_size=65536):
+                                f.write(chunk)
+                    break
+                except Exception as e:
+                    logger.warning("Download failed on attempt %d: %s", attempt + 1, e)
+                    if attempt == 4:
+                        raise
+                    time.sleep(2)
+    
+            # Extract the JAR to find the .txz archive inside
+            extract_dir = global_pg_home.parent / "tmp_jar"
+            extract_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(jar_path, "r") as zf:
                 txz_names = [n for n in zf.namelist() if n.endswith(".txz")]
                 if not txz_names:
                     raise RuntimeError("No .txz file found in zonkyio JAR")
                 zf.extract(txz_names[0], extract_dir)
                 txz_path = extract_dir / txz_names[0]
-
-            # Extract the .txz into pg_home
-            self._pg_home.mkdir(parents=True, exist_ok=True)
+    
+            # Extract the .txz into global_pg_home
+            global_pg_home.mkdir(parents=True, exist_ok=True)
             with tarfile.open(txz_path, "r:xz") as tf:
-                tf.extractall(path=self._pg_home)
+                tf.extractall(path=global_pg_home)
+    
+            # Make binaries executable
+            bin_dir = global_pg_home / "bin"
+            if bin_dir.exists():
+                for binary in bin_dir.iterdir():
+                    if binary.is_file():
+                        binary.chmod(binary.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP)
+    
+            jar_path.unlink()
+            import shutil
+            shutil.rmtree(extract_dir)
 
-        # Make binaries executable
-        bin_dir = self._pg_home / "bin"
-        if bin_dir.exists():
-            for binary in bin_dir.iterdir():
-                if binary.is_file():
-                    binary.chmod(binary.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP)
+            logger.info("Installed zonkyio PG %s to cache %s", ZONKYIO_PG_VERSION, global_pg_home)
 
-        if not pg_ctl.exists():
-            raise FileNotFoundError(f"pg_ctl not found after extraction: {pg_ctl}")
+        if not global_pg_ctl.exists():
+            raise FileNotFoundError(f"pg_ctl not found after extraction: {global_pg_ctl}")
 
-        logger.info("Installed zonkyio PG %s to %s", ZONKYIO_PG_VERSION, self._pg_home)
+        # Symlink or copy to the test instance pg_home
+        self._pg_home.parent.mkdir(parents=True, exist_ok=True)
+        # Handle symlinks safely - Windows might not support it without admin
+        try:
+            if self._pg_home.exists():
+                import shutil
+                if self._pg_home.is_symlink():
+                    self._pg_home.unlink()
+                else:
+                    shutil.rmtree(self._pg_home)
+            os.symlink(global_pg_home, self._pg_home, target_is_directory=True)
+        except OSError:
+            import shutil
+            shutil.copytree(global_pg_home, self._pg_home)
+
+        return pg_ctl
 
 
 def ensure_pgcrypto() -> bool:
@@ -556,39 +561,63 @@ class LakekeeperManager:
         if binary.exists() and os.access(binary, os.X_OK):
             return binary
 
-        logger.info("Lakekeeper binary not found, downloading v%s...", LAKEKEEPER_VERSION)
-        archive_name = _lakekeeper_archive_name()
-        url = f"{LAKEKEEPER_BASE_URL}/v{LAKEKEEPER_VERSION}/{archive_name}"
+        # Use project-level cache to avoid downloading per-test
+        project_root = Path(__file__).resolve().parent.parent
+        cache_dir = Path(os.environ.get("PY_FLOW_CACHE_DIR", project_root / ".cache" / "lakehouse"))
+        global_bin_dir = cache_dir / f"lakekeeper-{LAKEKEEPER_VERSION}"
+        global_binary = global_bin_dir / "lakekeeper"
+
+        if not (global_binary.exists() and os.access(global_binary, os.X_OK)):
+            logger.info("Lakekeeper binary not found in cache, downloading v%s...", LAKEKEEPER_VERSION)
+            archive_name = _lakekeeper_archive_name()
+            url = f"{LAKEKEEPER_BASE_URL}/v{LAKEKEEPER_VERSION}/{archive_name}"
+
+            global_bin_dir.mkdir(parents=True, exist_ok=True)
+            archive_path = global_bin_dir / archive_name
+
+            import time
+            for attempt in range(5):
+                try:
+                    with httpx.stream("GET", url, follow_redirects=True, timeout=httpx.Timeout(300.0, read=300.0)) as resp:
+                        resp.raise_for_status()
+                        with open(archive_path, "wb") as f:
+                            for chunk in resp.iter_bytes(chunk_size=65536):
+                                f.write(chunk)
+                    break
+                except Exception as e:
+                    logger.warning("Download failed on attempt %d: %s", attempt + 1, e)
+                    if attempt == 4:
+                        raise
+                    time.sleep(2)
+            logger.info("Downloaded %s to cache", archive_name)
+
+            with tarfile.open(archive_path, "r:gz") as tf:
+                tf.extractall(path=global_bin_dir)
+
+            archive_path.unlink()
+
+            # Find the binary (may be in a subdirectory)
+            if not global_binary.exists():
+                for candidate in global_bin_dir.rglob("lakekeeper"):
+                    if candidate.is_file():
+                        candidate.rename(global_binary)
+                        break
+
+            if global_binary.exists():
+                global_binary.chmod(global_binary.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+        if not global_binary.exists():
+            raise FileNotFoundError(f"Lakekeeper binary not found after extraction in {global_bin_dir}")
 
         bin_dir.mkdir(parents=True, exist_ok=True)
-        archive_path = bin_dir / archive_name
-
-        with httpx.stream("GET", url, follow_redirects=True, timeout=120) as resp:
-            resp.raise_for_status()
-            with open(archive_path, "wb") as f:
-                for chunk in resp.iter_bytes(chunk_size=65536):
-                    f.write(chunk)
-        logger.info("Downloaded %s", archive_name)
-
-        with tarfile.open(archive_path, "r:gz") as tf:
-            tf.extractall(path=bin_dir)
-
-        archive_path.unlink()
-
-        # Find the binary (may be in a subdirectory)
-        if not binary.exists():
-            for candidate in bin_dir.rglob("lakekeeper"):
-                if candidate.is_file():
-                    candidate.rename(binary)
-                    break
-
-        if binary.exists():
-            binary.chmod(binary.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-
-        if not binary.exists():
-            raise FileNotFoundError(f"Lakekeeper binary not found after extraction in {bin_dir}")
-
+        # Symlink or copy to the test instance
+        try:
+            if binary.exists():
+                binary.unlink()
+            os.symlink(global_binary, binary)
+        except OSError:
+            import shutil
+            shutil.copy2(global_binary, binary)
+            
         logger.info("Lakekeeper v%s installed to %s", LAKEKEEPER_VERSION, binary)
         return binary
-
-
