@@ -620,14 +620,14 @@ class Lakehouse:
         conn = self._ensure_conn()
         result = conn.execute(
             "SELECT table_name FROM information_schema.tables "
-            "WHERE table_catalog='lakehouse' AND table_schema='default'"
+            f"WHERE table_catalog='lakehouse' AND table_schema='{self._namespace}'"
         ).fetchall()
         return [row[0] for row in result]
 
     def table_info(self, table_name: str) -> list[dict]:
         """Get column info for a specific table."""
         conn = self._ensure_conn()
-        result = conn.execute(f"DESCRIBE lakehouse.default.{table_name}")
+        result = conn.execute(f"DESCRIBE {self._fqn(table_name)}")
         columns = [desc[0] for desc in result.description]
         rows = result.fetchall()
         return [dict(zip(columns, row, strict=False)) for row in rows]
@@ -636,7 +636,7 @@ class Lakehouse:
         """Get the row count for a specific table."""
         conn = self._ensure_conn()
         result = conn.execute(
-            f"SELECT count(*) FROM lakehouse.default.{table_name}"
+            f"SELECT count(*) FROM {self._fqn(table_name)}"
         ).fetchone()
         return result[0] if result else 0
 

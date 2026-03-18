@@ -78,7 +78,7 @@ class TestQuestDBBackendRoundTrip:
         pair = _unique_symbol("TEST/FX")
         now = _now()
         tick = FXTick(
-            pair=pair, bid=1.0849, ask=1.0855, mid=1.0852,
+            symbol=pair, pair=pair, bid=1.0849, ask=1.0855, mid=1.0852,
             spread_pips=0.6, currency="USD", timestamp=now,
         )
 
@@ -95,7 +95,7 @@ class TestQuestDBBackendRoundTrip:
         label = _unique_symbol("TEST_CRV")
         now = _now()
         tick = CurveTick(
-            label=label, tenor_years=5.0, rate=0.041,
+            symbol=label, label=label, tenor_years=5.0, rate=0.041,
             discount_factor=0.8171, currency="USD", timestamp=now,
         )
 

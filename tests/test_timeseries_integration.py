@@ -39,14 +39,14 @@ def _equity_tick(symbol: str, price: float, ts: datetime) -> Tick:
 
 def _fx_tick(pair: str, mid: float, ts: datetime) -> FXTick:
     return FXTick(
-        pair=pair, bid=mid - 0.0003, ask=mid + 0.0003, mid=mid,
+        symbol=pair, pair=pair, bid=mid - 0.0003, ask=mid + 0.0003, mid=mid,
         spread_pips=0.6, currency="USD", timestamp=ts,
     )
 
 
 def _curve_tick(label: str, rate: float, ts: datetime) -> CurveTick:
     return CurveTick(
-        label=label, tenor_years=5.0, rate=rate,
+        symbol=label, label=label, tenor_years=5.0, rate=rate,
         discount_factor=1.0 / (1.0 + rate) ** 5.0,
         currency="USD", timestamp=ts,
     )
@@ -406,7 +406,7 @@ class TestConsumerIntegration:
 class TestServerHistoricalEndpoints:
     """Full server integration: publish ticks → query via REST endpoints."""
 
-    @pytest.fixture
+    @pytest.fixture(scope="class")
     def client(self):
         """Create a TestClient with TSDB_BACKEND=memory."""
         os.environ["TSDB_BACKEND"] = "memory"

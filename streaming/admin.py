@@ -101,13 +101,26 @@ class StreamingServer:
                 container_name, self._port
             )
             
+            import os
+            
+            # Auto-detect custom JARs and inject them via Docker volume / Classpath
+            run_cmd = [
+                "docker", "run", "-d", "--rm", "--name", container_name,
+                "-p", f"{self._port}:10000"
+            ]
+            
+            start_opts = "-DAuthHandlers=io.deephaven.auth.AnonymousAuthenticationHandler"
+            jars_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "lib", "jars"))
+            if os.path.isdir(jars_dir):
+                run_cmd.extend(["-v", f"{jars_dir}:/apps/libs"])
+                
+            run_cmd.extend([
+                "-e", f"START_OPTS={start_opts}",
+                "ghcr.io/deephaven/server:latest"
+            ])
+            
             try:
-                subprocess.run([
-                    "docker", "run", "-d", "--rm", "--name", container_name,
-                    "-p", f"{self._port}:10000",
-                    "-e", "START_OPTS=-DAuthHandlers=io.deephaven.auth.AnonymousAuthenticationHandler",
-                    "ghcr.io/deephaven/server:latest"
-                ], check=True, capture_output=True)
+                subprocess.run(run_cmd, check=True, capture_output=True)
             except subprocess.CalledProcessError as e:
                 logger.error("Failed to start Deephaven Docker container: %s", e.stderr.decode())
                 raise RuntimeError(f"Docker start failed: {e.stderr.decode()}")
@@ -135,10 +148,18 @@ class StreamingServer:
 
         # 2. Fallback to started the in-process server (x86 only)
         try:
+            import os
             from deephaven_server import Server
+            
+            # Inject custom jars natively to the embedded Python JVM
+            active_jvm_args = list(self._jvm_args)
+            jars_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "lib", "jars"))
+            if os.path.isdir(jars_dir):
+                active_jvm_args.append(f"-Djava.class.path={jars_dir}/*")
+                
             self._server = Server(
                 port=self._port,
-                jvm_args=self._jvm_args,
+                jvm_args=active_jvm_args,
                 default_jvm_args=self._default_jvm_args,
             )
             self._server.start()
