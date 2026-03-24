@@ -86,6 +86,9 @@ def _resolve_column_specs(cls: type, exclude: set | None = None) -> list[tuple[s
     for name in computed_names:
         cp = getattr(cls, name)
         ret = getattr(cp.fn, "__annotations__", {}).get("return", float)
+        # Handle stringified annotations (from __future__ import annotations)
+        if isinstance(ret, str):
+            ret = {"str": str, "float": float, "int": int, "bool": bool}.get(ret)
         if ret not in _PRIMITIVE_TYPES:
             ret = float  # default to float for unannotated computed
         specs.append((name, name, ret))
