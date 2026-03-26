@@ -11,8 +11,16 @@ on:
 
 jobs:
   test:
-    name: Full test suite
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: macOS (Apple Silicon)
+          - os: ubuntu-24.04-arm
+            name: Linux ARM64
+    name: "${{ matrix.name }}"
+    runs-on: ${{ matrix.os }}
     env:
       # Gemini API key for demo tests that exercise AI features
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
@@ -35,10 +43,16 @@ jobs:
         run: pip install uv
 
       - name: Install all dependencies
-        run: uv pip install --system -e ".[streaming,marketdata,timeseries,lakehouse,media,ai,datacube,agents,dev]"
+        run: uv sync --frozen --all-extras
+
+      # ARM runner: pre-pull the Deephaven Docker image so tests don't timeout
+      - name: Pull Deephaven Docker image (ARM only)
+        if: runner.arch == 'ARM64' && runner.os == 'Linux'
+        run: docker pull ghcr.io/deephaven/server:latest
 
       - name: Make test scripts executable
         run: chmod +x run_all_tests.sh run_tests.sh run_demo_tests.sh
 
       - name: Run full test suite
         run: ./run_all_tests.sh
+

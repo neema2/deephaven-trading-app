@@ -31,6 +31,11 @@ pkill -9 -f minio 2>/dev/null || true
 for seg in $(ipcs -m 2>/dev/null | awk '/^m / || /^0x/ {print $2}' | grep -E '^[0-9]+$'); do
     ipcrm -m "$seg" 2>/dev/null || true
 done
+
+# Clean up stale Deephaven Docker containers
+if command -v docker &>/dev/null; then
+    docker ps -aq --filter "name=dh-streaming" 2>/dev/null | xargs -r docker rm -f 2>/dev/null || true
+fi
 sleep 1
 
 # ── Launch both suites (SKIP_CLEANUP=1 so they don't kill each other) ─

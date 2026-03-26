@@ -9,39 +9,36 @@ import pytest
 from streaming import StreamingClient
 
 
-def _publish_tables():
-    """Publish prices_live + portfolio_summary to DH query scope."""
-    from deephaven import agg, new_table
-    from deephaven.column import double_col, long_col, string_col
-    from deephaven.execution_context import get_exec_ctx
+_PUBLISH_SCRIPT = """
+from deephaven import agg, new_table
+from deephaven.column import double_col, long_col, string_col
 
-    prices_live = new_table([
-        string_col("Symbol", ["AAPL","GOOGL","MSFT","AMZN","TSLA","NVDA","META","NFLX"]),
-        double_col("Price", [228.0, 192.0, 415.0, 225.0, 355.0, 138.0, 580.0, 920.0]),
-        double_col("Bid", [227.9, 191.9, 414.9, 224.9, 354.9, 137.9, 579.9, 919.9]),
-        double_col("Ask", [228.1, 192.1, 415.1, 225.1, 355.1, 138.1, 580.1, 920.1]),
-        long_col("Volume", [1000000, 800000, 900000, 700000, 1200000, 1500000, 600000, 400000]),
-        double_col("Change", [1.5, -0.8, 2.1, -1.2, 3.5, -0.5, 1.8, -2.0]),
-        double_col("ChangePct", [0.66, -0.42, 0.51, -0.53, 0.99, -0.36, 0.31, -0.22]),
-    ])
+prices_live = new_table([
+    string_col("Symbol", ["AAPL","GOOGL","MSFT","AMZN","TSLA","NVDA","META","NFLX"]),
+    double_col("Price", [228.0, 192.0, 415.0, 225.0, 355.0, 138.0, 580.0, 920.0]),
+    double_col("Bid", [227.9, 191.9, 414.9, 224.9, 354.9, 137.9, 579.9, 919.9]),
+    double_col("Ask", [228.1, 192.1, 415.1, 225.1, 355.1, 138.1, 580.1, 920.1]),
+    long_col("Volume", [1000000, 800000, 900000, 700000, 1200000, 1500000, 600000, 400000]),
+    double_col("Change", [1.5, -0.8, 2.1, -1.2, 3.5, -0.5, 1.8, -2.0]),
+    double_col("ChangePct", [0.66, -0.42, 0.51, -0.53, 0.99, -0.36, 0.31, -0.22]),
+])
 
-    portfolio_summary = new_table([
-        string_col("Symbol", ["AAPL","GOOGL","MSFT","AMZN","TSLA","NVDA","META","NFLX"]),
-        double_col("Delta", [0.65, 0.55, 0.70, 0.50, 0.80, 0.60, 0.45, 0.35]),
-    ]).agg_by([
-        agg.sum_(["TotalDelta=Delta"]),
-        agg.count_("Count"),
-    ])
-
-    scope = get_exec_ctx().j_exec_ctx.getQueryScope()
-    scope.putParam("prices_live", prices_live.j_table)
-    scope.putParam("portfolio_summary", portfolio_summary.j_table)
+portfolio_summary = new_table([
+    string_col("Symbol", ["AAPL","GOOGL","MSFT","AMZN","TSLA","NVDA","META","NFLX"]),
+    double_col("Delta", [0.65, 0.55, 0.70, 0.50, 0.80, 0.60, 0.45, 0.35]),
+]).agg_by([
+    agg.sum_(["TotalDelta=Delta"]),
+    agg.count_("Count"),
+])
+"""
 
 
 @pytest.fixture(scope="module", autouse=True)
 def _setup_tables(streaming_server):
-    """Publish tables once for this module."""
-    _publish_tables()
+    """Publish tables once for this module via run_script (works in-process and Docker)."""
+    client = StreamingClient()
+    client.run_script(_PUBLISH_SCRIPT)
+    client.close()
 
 
 def _connect():

@@ -222,7 +222,9 @@ class StoreBridge:
             # Activate bridge connection in this thread (may be listener's bg thread)
             self._conn.activate()
             obj = reg.read_cls.find(event.entity_id)
-        except Exception:
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).debug("_dispatch read failed for %s: %s", event.entity_id, exc)
             return  # Object not readable (deleted, permission, etc.)
 
         # Apply filter predicate if configured

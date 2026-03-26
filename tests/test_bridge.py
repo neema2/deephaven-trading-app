@@ -34,7 +34,9 @@ from streaming import flush as streaming_flush
 def _flush_dh():
     """Flush the streaming update graph so write_row() results are visible."""
     streaming_flush()
-    time.sleep(0.2)
+    # Remote (Docker) mode needs more time for gRPC roundtrip + DH update graph
+    from streaming.admin import _needs_docker
+    time.sleep(1.0 if _needs_docker() else 0.2)
 
 
 # ── Test models ───────────────────────────────────────────────────────────

@@ -5,6 +5,10 @@ Hides Deephaven's DynamicTableWriter and update-graph locking behind a
 clean Python API.  All derivation operations (last_by, agg_by, sort, …)
 auto-acquire the UG shared lock so callers never segfault.
 
+**Dual-mode:** On macOS / x86 Linux, uses the in-process Deephaven JVM
+(``DynamicTableWriter``).  On Linux ARM64, uses ``pydeephaven`` to talk
+to a Docker-hosted Deephaven server.
+
 Classes:
     LiveTable     Read-only derived table (all ops auto-locked).
     TickingTable  Writable table (inherits LiveTable, adds write_row/flush).
@@ -12,12 +16,21 @@ Classes:
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
 import pandas as pd
+
+from streaming.admin import _needs_docker
+
+# ---------------------------------------------------------------------------
+# Mode flag — set once at import time
+# ---------------------------------------------------------------------------
+
+_REMOTE = _needs_docker()
 
 # ---------------------------------------------------------------------------
 # Python type → Deephaven type mapping (lazy, avoids import at module level)
@@ -70,7 +83,12 @@ def flush() -> None:
 
     Safe to call from any thread — the update graph reference is cached
     on the first call (which must happen on the main/DH thread).
+
+    On remote (Docker) mode, this is a no-op — writes are immediately
+    visible through the gRPC session.
     """
+    if _REMOTE:
+        return  # Docker DH auto-flushes; no UG to poke
     global _UG_REF
     if _UG_REF is None:
         from deephaven.execution_context import get_exec_ctx
@@ -92,7 +110,7 @@ def snapshot(table: "LiveTable") -> "pd.DataFrame":
 
 
 # ---------------------------------------------------------------------------
-# LiveTable — read-only, auto-locked
+# LiveTable — read-only, auto-locked (in-process mode)
 # ---------------------------------------------------------------------------
 
 class LiveTable:
@@ -203,7 +221,7 @@ class LiveTable:
 
 
 # ---------------------------------------------------------------------------
-# TickingTable — writable, inherits LiveTable
+# TickingTable — writable, inherits LiveTable (in-process mode)
 # ---------------------------------------------------------------------------
 
 class TickingTable(LiveTable):
@@ -243,3 +261,176 @@ class TickingTable(LiveTable):
 
     def __repr__(self) -> str:
         return f"<TickingTable rows={self.size}>"
+
+
+# ===========================================================================
+# Remote (Docker) mode — used ONLY on Linux ARM64
+# ===========================================================================
+
+if _REMOTE:
+    # -- Shared session (lazy singleton) ----------------------------------
+
+    _remote_session = None
+    _remote_port = 10000  # default; overridden by conftest
+
+    def _get_session():
+        """Return the shared pydeephaven session, creating if needed."""
+        global _remote_session
+        if _remote_session is None:
+            from pydeephaven import Session
+            _remote_session = Session(host="localhost", port=_remote_port)
+        return _remote_session
+
+    def set_remote_port(port: int) -> None:
+        """Set the port for remote session (called by conftest/admin)."""
+        global _remote_port, _remote_session
+        _remote_port = port
+        if _remote_session is not None:
+            try:
+                _remote_session.close()
+            except Exception:
+                pass
+            _remote_session = None
+
+    # -- Name generator for server-side variables -------------------------
+    _name_counter = itertools.count()
+
+    def _next_name(prefix: str = "_tt") -> str:
+        return f"{prefix}_{next(_name_counter)}"
+
+    # -- Python type → DH type string mapping for run_script --------------
+    _PY_TO_DH_STR = {
+        str: "dht.string",
+        float: "dht.double",
+        int: "dht.int64",
+        bool: "dht.bool_",
+        Decimal: "dht.double",
+        datetime: "dht.Instant",
+    }
+
+    class RemoteLiveTable:
+        """Read-only derived ticking table on a remote Deephaven server."""
+
+        __slots__ = ("_name",)
+
+        def __init__(self, name: str) -> None:
+            self._name = name
+
+        def _derive_remote(self, op: str) -> RemoteLiveTable:
+            new = _next_name("_lt")
+            _get_session().run_script(f"{new} = {self._name}.{op}")
+            return RemoteLiveTable(new)
+
+        def last_by(self, by):
+            return self._derive_remote(f"last_by({by!r})")
+
+        def first_by(self, by):
+            return self._derive_remote(f"first_by({by!r})")
+
+        def agg_by(self, aggs, by=None):
+            # Ensure deephaven.agg is in server scope for RemoteAgg reprs
+            sess = _get_session()
+            sess.run_script("from deephaven import agg")
+            if by is not None:
+                return self._derive_remote(f"agg_by({aggs!r}, {by!r})")
+            return self._derive_remote(f"agg_by({aggs!r})")
+
+        def sum_by(self, by=None):
+            if by is not None:
+                return self._derive_remote(f"sum_by({by!r})")
+            return self._derive_remote("sum_by()")
+
+        def avg_by(self, by=None):
+            if by is not None:
+                return self._derive_remote(f"avg_by({by!r})")
+            return self._derive_remote("avg_by()")
+
+        def group_by(self, by=None):
+            if by is not None:
+                return self._derive_remote(f"group_by({by!r})")
+            return self._derive_remote("group_by()")
+
+        def count_by(self, col, by=None):
+            if by is not None:
+                return self._derive_remote(f"count_by({col!r}, {by!r})")
+            return self._derive_remote(f"count_by({col!r})")
+
+        def sort(self, order_by):
+            return self._derive_remote(f"sort({order_by!r})")
+
+        def sort_descending(self, order_by):
+            return self._derive_remote(f"sort_descending({order_by!r})")
+
+        def where(self, filters):
+            return self._derive_remote(f"where({filters!r})")
+
+        def publish(self, name: str) -> None:
+            # Table already lives server-side; just alias it
+            _get_session().run_script(f"{name} = {self._name}")
+
+        def snapshot(self) -> pd.DataFrame:
+            tbl = _get_session().open_table(self._name)
+            return tbl.to_arrow().to_pandas()
+
+        @property
+        def size(self) -> int:
+            tbl = _get_session().open_table(self._name)
+            return tbl.to_arrow().num_rows
+
+        def __repr__(self) -> str:
+            return f"<RemoteLiveTable name={self._name!r}>"
+
+    class RemoteTickingTable(RemoteLiveTable):
+        """Writable ticking table on a remote Deephaven server."""
+
+        __slots__ = ("_writer_name", "_schema")
+
+        def __init__(self, schema: dict[str, type]) -> None:
+            self._schema = schema
+            name = _next_name("_tt")
+            writer_name = f"{name}_w"
+
+            # Build the server-side DynamicTableWriter creation script
+            cols = ", ".join(
+                f"{col_name!r}: {_PY_TO_DH_STR[py_type]}"
+                for col_name, py_type in schema.items()
+            )
+            script = (
+                f"import datetime\n"
+                f"import deephaven.dtypes as dht\n"
+                f"from deephaven import DynamicTableWriter\n"
+                f"from deephaven.time import to_j_instant\n"
+                f"{writer_name} = DynamicTableWriter({{{cols}}})\n"
+                f"{name} = {writer_name}.table\n"
+            )
+            _get_session().run_script(script)
+            self._writer_name = writer_name
+            super().__init__(name)
+
+        def write_row(self, *values: Any) -> None:
+            parts = []
+            for v in values:
+                if isinstance(v, datetime):
+                    # Convert to ISO format string and parse server-side
+                    parts.append(f"to_j_instant('{v.isoformat()}')")
+                else:
+                    parts.append(repr(v))
+            vals = ", ".join(parts)
+            _get_session().run_script(
+                f"{self._writer_name}.write_row({vals})"
+            )
+
+        def flush(self) -> None:
+            # Remote DH auto-flushes; no-op
+            pass
+
+        def close(self) -> None:
+            _get_session().run_script(f"{self._writer_name}.close()")
+
+        def __repr__(self) -> str:
+            return f"<RemoteTickingTable name={self._name!r}>"
+
+    # -- Monkey-patch the module-level names so callers see the right type -
+    LiveTable = RemoteLiveTable  # type: ignore[misc]
+    TickingTable = RemoteTickingTable  # type: ignore[misc]
+

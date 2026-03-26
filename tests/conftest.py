@@ -87,6 +87,15 @@ if _any_test_needs_streaming():
     from streaming.admin import StreamingServer
     _streaming = StreamingServer(port=10000 + _PORT_OFFSET, max_heap="512m")
     _streaming.start()
+    # If running in Docker (Linux ARM or FORCE_DOCKER_STREAMING), wire remote port
+    if _streaming.remote:
+        from streaming.table import set_remote_port
+        set_remote_port(_streaming.port)
+    _mode = "DOCKER (remote)" if _streaming.remote else "IN-PROCESS (JVM)"
+    print(f"\n{'='*60}")
+    print(f"  StreamingServer mode: {_mode}")
+    print(f"  Port: {_streaming.port}")
+    print(f"{'='*60}\n")
 
 
 @pytest.fixture(scope="session")

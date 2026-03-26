@@ -21,10 +21,10 @@ import os
 import urllib.parse
 from typing import Any
 
-import pgserver
+import pixeltable_pgserver as pgserver
 from db import Connection
 from db import connect as _db_connect
-from pgserver import PostgresServer
+from pixeltable_pgserver import PostgresServer
 
 from workflow._registry import register_alias as _register_alias
 

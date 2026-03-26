@@ -10,9 +10,9 @@ import os
 import urllib.parse
 from typing import Any
 
-import pgserver
+import pixeltable_pgserver as pgserver
 import psycopg2
-from pgserver import PostgresServer
+from pixeltable_pgserver import PostgresServer
 
 DEFAULT_DATA_DIR = os.path.join(
     os.path.dirname(__file__), "..", ".pgdata", "objectstore"

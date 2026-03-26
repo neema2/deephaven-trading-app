@@ -29,7 +29,7 @@ classifiers = [
 dependencies = [
     "reaktiv>=0.19.0",
     "psycopg2-binary>=2.9.0",
-    "pgserver>=0.1.0",
+    "pixeltable-pgserver>=0.5.0",
     "dbos>=2.13.0",
     "croniter>=2.0.0",
 ]
