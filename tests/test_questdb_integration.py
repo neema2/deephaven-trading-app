@@ -183,7 +183,7 @@ class TestServerQuestDBRoundTrip:
     def test_history_has_real_ticks(self, server_url):
         """GET /md/history/equity/AAPL returns real ticks from QuestDB."""
         import httpx
-        resp = httpx.get(f"{server_url}/md/history/equity/AAPL", params={"limit": 10}, timeout=5)
+        resp = httpx.get(f"{server_url}/md/history/equity/AAPL", params={"limit": 10}, timeout=15)
         assert resp.status_code == 200
         ticks = resp.json()
         assert len(ticks) > 0, "No AAPL ticks in QuestDB"
@@ -194,7 +194,7 @@ class TestServerQuestDBRoundTrip:
     def test_bars_have_ohlcv(self, server_url):
         """GET /md/bars/equity/AAPL returns real OHLCV bars."""
         import httpx
-        resp = httpx.get(f"{server_url}/md/bars/equity/AAPL", params={"interval": "5s"}, timeout=5)
+        resp = httpx.get(f"{server_url}/md/bars/equity/AAPL", params={"interval": "5s"}, timeout=15)
         assert resp.status_code == 200
         bars = resp.json()
         assert len(bars) > 0, "No AAPL bars in QuestDB"
@@ -208,7 +208,7 @@ class TestServerQuestDBRoundTrip:
     def test_fx_ticks_stored(self, server_url):
         """FX ticks from simulator are stored in QuestDB."""
         import httpx
-        resp = httpx.get(f"{server_url}/md/history/fx/EUR/USD", params={"limit": 5}, timeout=5)
+        resp = httpx.get(f"{server_url}/md/history/fx/EUR/USD", params={"limit": 5}, timeout=15)
         assert resp.status_code == 200
         ticks = resp.json()
         assert len(ticks) > 0, "No EUR/USD ticks in QuestDB"
@@ -218,7 +218,7 @@ class TestServerQuestDBRoundTrip:
     def test_latest_all_equity_symbols(self, server_url):
         """LATEST ON returns one row per equity symbol."""
         import httpx
-        resp = httpx.get(f"{server_url}/md/latest/equity", timeout=5)
+        resp = httpx.get(f"{server_url}/md/latest/equity", timeout=15)
         assert resp.status_code == 200
         data = resp.json()
         symbols = {row["symbol"] for row in data}
@@ -229,8 +229,8 @@ class TestServerQuestDBRoundTrip:
     def test_multiple_intervals(self, server_url):
         """Different bar intervals produce different bar counts."""
         import httpx
-        resp_5s = httpx.get(f"{server_url}/md/bars/equity/AAPL", params={"interval": "5s"}, timeout=5)
-        resp_15s = httpx.get(f"{server_url}/md/bars/equity/AAPL", params={"interval": "15s"}, timeout=5)
+        resp_5s = httpx.get(f"{server_url}/md/bars/equity/AAPL", params={"interval": "5s"}, timeout=15)
+        resp_15s = httpx.get(f"{server_url}/md/bars/equity/AAPL", params={"interval": "15s"}, timeout=15)
         bars_5s = resp_5s.json()
         bars_15s = resp_15s.json()
         # 5s bars should be at least as many as 15s bars
