@@ -178,7 +178,7 @@ async def get_tick_history(
         start = datetime(2000, 1, 1)
     if end is None:
         end = datetime(2099, 12, 31)
-    return tsdb.get_ticks(msg_type, symbol, start, end, limit)
+    return await asyncio.to_thread(tsdb.get_ticks, msg_type, symbol, start, end, limit)
 
 
 @app.get("/md/bars/{msg_type}/{symbol:path}")
@@ -191,7 +191,7 @@ async def get_bars(
 ) -> list[dict[str, Any]]:
     """OHLCV bars for a symbol at the given interval."""
     tsdb = _require_tsdb()
-    bars = tsdb.get_bars(msg_type, symbol, interval, start, end)
+    bars = await asyncio.to_thread(tsdb.get_bars, msg_type, symbol, interval, start, end)
     return [bar.model_dump() for bar in bars]
 
 
@@ -204,13 +204,13 @@ async def get_bars_by_type(
 ) -> dict[str, list[dict[str, Any]]]:
     """Latest bars for all symbols of a given type."""
     tsdb = _require_tsdb()
-    latest = tsdb.get_latest(msg_type)
+    latest = await asyncio.to_thread(tsdb.get_latest, msg_type)
     # Get bars for each unique symbol found in latest
     raw_symbols = {row.get("symbol") or row.get("pair") or row.get("label") for row in latest}
     symbols: set[str] = {s for s in raw_symbols if isinstance(s, str)}
     result = {}
     for sym in sorted(symbols):
-        bars = tsdb.get_bars(msg_type, sym, interval, start, end)
+        bars = await asyncio.to_thread(tsdb.get_bars, msg_type, sym, interval, start, end)
         result[sym] = [bar.model_dump() for bar in bars]
     return result
 
@@ -222,7 +222,7 @@ async def get_latest_from_tsdb(
 ) -> list[dict[str, Any]]:
     """Latest tick(s) per symbol from the time-series store."""
     tsdb = _require_tsdb()
-    return tsdb.get_latest(msg_type, symbol)
+    return await asyncio.to_thread(tsdb.get_latest, msg_type, symbol)
 
 
 # ── Publish Endpoint ─────────────────────────────────────────────────────────
