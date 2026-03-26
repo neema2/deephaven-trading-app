@@ -166,6 +166,7 @@ def tsdb_server():
     )
     asyncio.run(srv.start())
     srv.register_alias("test")
+    srv.register_alias("default")  # cross-process: subprocess inherits env vars
     yield srv
     asyncio.run(srv.stop())
 

@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     tsdb_enabled = os.environ.get("TSDB_ENABLED", "1").lower() in ("1", "true", "yes")
     if tsdb_enabled:
         try:
-            tsdb = create_backend()
+            tsdb = create_backend(auto_start=False)
             await tsdb.start()
             tsdb_consumer = TSDBConsumer(bus, tsdb)
             await tsdb_consumer.start()

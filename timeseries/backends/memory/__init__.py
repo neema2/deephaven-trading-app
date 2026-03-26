@@ -45,7 +45,8 @@ _INTERVAL_TD = {
 class MemoryBackend(TSDBBackend):
     """In-memory TSDB backend with real bar aggregation."""
 
-    def __init__(self) -> None:
+    def __init__(self, **kwargs: object) -> None:
+        # Accept and ignore extra kwargs (e.g. QuestDB ports from alias config)
         # Storage: {msg_type: [(timestamp, dict), ...]}
         self._ticks: dict[str, list[tuple[datetime, dict]]] = defaultdict(list)
         self._started = False
