@@ -32,11 +32,14 @@ def _detect_archive_name() -> str:
     machine = platform.machine().lower()
 
     if system == "darwin":
-        if machine in ("arm64", "aarch64"):
-            return f"questdb-{QUESTDB_VERSION}-no-jre-bin.tar.gz"
+        # macOS — use platform-independent archive (runs on both x86 and ARM)
         return f"questdb-{QUESTDB_VERSION}-no-jre-bin.tar.gz"
     elif system == "linux":
-        return f"questdb-{QUESTDB_VERSION}-rt-linux-amd64.tar.gz"
+        if machine in ("x86_64", "amd64"):
+            return f"questdb-{QUESTDB_VERSION}-rt-linux-x86-64.tar.gz"
+        else:
+            # ARM64 / other — use platform-independent archive (requires Java)
+            return f"questdb-{QUESTDB_VERSION}-no-jre-bin.tar.gz"
     elif system == "windows":
         return f"questdb-{QUESTDB_VERSION}-no-jre-bin.tar.gz"
     else:
