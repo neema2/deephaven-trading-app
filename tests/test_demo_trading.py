@@ -29,7 +29,8 @@ def tables(streaming_server, market_data_server):
     md_url = f"ws://localhost:{market_data_server.port}/md/subscribe"
     t = publish_tables(md_url)
     # Let ticks flow from market data server → WS consumer → writers
-    time.sleep(5)
+    from streaming.admin import _needs_docker
+    time.sleep(8 if _needs_docker() else 5)
     flush()
     yield t
     stop_feed()

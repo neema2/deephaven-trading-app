@@ -131,10 +131,13 @@ class StreamingServer:
             capture_output=True,
         )
 
+        # DH container always listens on 10000 internally
+        internal_port = 10000
+
         cmd = [
             docker, "run", "-d",
             "--name", container_name,
-            "-p", f"{self._port}:{self._port}",
+            "-p", f"{self._port}:{internal_port}",
             "-e", f"START_OPTS=-Xmx{self._max_heap} "
                   f"-DAuthHandlers=io.deephaven.auth.AnonymousAuthenticationHandler "
                   f"-Ddeephaven.console.type=python",

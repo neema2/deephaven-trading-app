@@ -80,7 +80,8 @@ def _publish_tables():
 
     # Flush so derived tables reflect initial rows
     flush()
-    time.sleep(0.3)
+    from streaming.admin import _needs_docker
+    time.sleep(1.5 if _needs_docker() else 0.3)
 
     # ── Background ticker: feed new rows so tables tick ──
     _ticker_stop.clear()
@@ -102,7 +103,8 @@ def _publish_tables():
 def client(streaming_server):
     """Publish all 7 trading tables, then connect a pydeephaven client."""
     _publish_tables()
-    time.sleep(0.5)  # let a few ticks accumulate
+    from streaming.admin import _needs_docker
+    time.sleep(2.0 if _needs_docker() else 0.5)  # let a few ticks accumulate
     c = StreamingClient()
     yield c
     _ticker_stop.set()
