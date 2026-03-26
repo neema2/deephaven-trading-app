@@ -54,5 +54,5 @@ jobs:
         run: chmod +x run_all_tests.sh run_tests.sh run_demo_tests.sh
 
       - name: Run full test suite
-        run: ./run_all_tests.sh
+        run: uv run ./run_all_tests.sh
 
