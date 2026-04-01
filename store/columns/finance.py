@@ -512,6 +512,66 @@ REGISTRY.define("swap_count", int,
     category="fixed_income",
 )
 
+# ── DV01 Risk Results ────────────────────────────────────────────
+
+REGISTRY.define("swap_symbol", str,
+    description="Swap identifier for risk result linkage",
+    semantic_type="identifier",
+    role="dimension",
+    display_name="Swap Symbol",
+    category="risk",
+)
+
+REGISTRY.define("curve_point", str,
+    description="Yield curve point label shocked for DV01",
+    semantic_type="identifier",
+    role="dimension",
+    display_name="Curve Point",
+    category="risk",
+)
+
+REGISTRY.define("base_npv", float,
+    description="NPV before any rate shock is applied",
+    role="measure", unit="USD",
+    format=",.2f",
+    category="risk",
+)
+
+REGISTRY.define("central_dv01", float,
+    description="DV01 via central difference: (P_up - P_down) / (2 * shock)",
+    role="measure", unit="USD",
+    format=",.2f",
+    category="risk",
+)
+
+REGISTRY.define("forward_dv01", float,
+    description="DV01 via forward difference: (P_up - P_base) / shock",
+    role="measure", unit="USD",
+    format=",.2f",
+    category="risk",
+)
+
+REGISTRY.define("p_up", float,
+    description="NPV after +shock bump to curve point rate",
+    role="measure", unit="USD",
+    format=",.2f",
+    category="risk",
+)
+
+REGISTRY.define("p_down", float,
+    description="NPV after -shock bump to curve point rate",
+    role="measure", unit="USD",
+    format=",.2f",
+    category="risk",
+)
+
+REGISTRY.define("shock_bps", float,
+    description="Shock size in basis points used for DV01 computation",
+    role="measure", unit="bps",
+    format=".1f",
+    category="risk",
+)
+
 # ── Portfolio Risk ───────────────────────────────────────────────
 
 REGISTRY.define("sector", str,

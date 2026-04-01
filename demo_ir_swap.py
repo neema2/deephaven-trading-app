@@ -26,13 +26,9 @@ Usage:
 """
 
 import asyncio
-import json
 import logging
 import os
 import sys
-import threading
-from collections import deque
-from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -57,179 +53,41 @@ _md_server = MarketDataServer(port=8000)
 asyncio.run(_md_server.start())
 print(f"  Market data server started on port {_md_server.port}")
 
-# ── 2. Domain models — fully reactive (@computed + @effect) ──────────────
-from dataclasses import dataclass, field
+# ── 2. Build reactive graph using shared ir/ package ──────────────────────
+from streaming import agg, flush, get_tables
 
-from reactive.computed import computed, effect
-from streaming import agg, flush, get_tables, ticking
+from demo_ir_config import CURVE_CONFIGS, FX_CONFIG, SWAP_CONFIGS
+from ir.consumer import MarketDataConsumer
+from ir.graph import build_ir_graph
+from ir.models import SwapPortfolio, curve_publish_queue
 
-from store import Storable
+print("  Building reactive objects...")
+graph = build_ir_graph(
+    fx_config=FX_CONFIG,
+    curve_configs=CURVE_CONFIGS,
+    swap_configs=SWAP_CONFIGS,
+)
+fx_spots = graph["fx_spots"]
+curve_points = graph["curve_points"]
+swaps = graph["swaps"]
 
-# Publish queue: @effect on YieldCurvePoint.rate enqueues CurveTicks here;
-# the WS consumer drains them and sends back to the market data hub.
-_curve_publish_queue: deque = deque()
+# Convenience accessors for summary printing
+usd_curve_points = {k: v for k, v in curve_points.items() if k.startswith("USD")}
+jpy_curve_points = {k: v for k, v in curve_points.items() if k.startswith("JPY")}
 
+# Swap portfolios — @computed aggregates react to child swap changes
+usd_swaps = [s for s in swaps.values() if s.currency == "USD"]
+jpy_swaps = [s for s in swaps.values() if s.currency == "JPY"]
 
-@ticking
-@dataclass
-class FXSpot(Storable):
-    """Live FX spot rate.  @effect pushes every mid change to DH."""
-    __key__ = "pair"
-
-    pair: str = ""
-    bid: float = 0.0
-    ask: float = 0.0
-    currency: str = ""
-
-    @computed
-    def mid(self):
-        return (self.bid + self.ask) / 2
-
-    @computed
-    def spread_pips(self):
-        return (self.ask - self.bid) * 10000
-
-    @effect("mid")
-    def on_mid(self, value):
-        self.tick()
-
-
-@ticking(exclude={"base_rate", "sensitivity", "fx_base_mid"})
-@dataclass
-class YieldCurvePoint(Storable):
-    """Single curve point.  rate is @computed from fx_ref.mid (cross-entity)."""
-    __key__ = "label"
-
-    label: str = ""
-    tenor_years: float = 0.0
-    base_rate: float = 0.0
-    sensitivity: float = 0.5
-    currency: str = "USD"
-    fx_ref: object = None
-    fx_base_mid: float = 0.0
-
-    @computed
-    def rate(self):
-        if self.fx_ref is None:
-            return self.base_rate
-        fx_base = self.fx_base_mid
-        if fx_base == 0.0:
-            return self.base_rate
-        pct_move = (self.fx_ref.mid - fx_base) / fx_base  # type: ignore[attr-defined]
-        return max(0.0001, self.base_rate + self.sensitivity * pct_move)
-
-    @computed
-    def discount_factor(self):
-        return 1.0 / (1.0 + self.rate) ** self.tenor_years
-
-    @effect("rate")
-    def on_rate(self, value):
-        self.tick()
-        _curve_publish_queue.append({
-            "type": "curve",
-            "label": self.label,
-            "tenor_years": self.tenor_years,
-            "rate": self.rate,
-            "discount_factor": self.discount_factor,
-            "currency": self.currency,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-
-
-@ticking
-@dataclass
-class InterestRateSwap(Storable):
-    """IRS pricing.  float_rate is @computed from curve_ref.rate (cross-entity)."""
-    __key__ = "symbol"
-
-    symbol: str = ""
-    notional: float = 0.0
-    fixed_rate: float = 0.0
-    tenor_years: float = 0.0
-    currency: str = "USD"
-    curve_ref: object = None
-
-    @computed
-    def float_rate(self):
-        if self.curve_ref is None:
-            return 0.0
-        return self.curve_ref.rate  # type: ignore[attr-defined]
-
-    @computed
-    def fixed_leg_pv(self):
-        df = 1.0 / (1.0 + self.fixed_rate) ** self.tenor_years
-        return self.notional * self.fixed_rate * self.tenor_years * df
-
-    @computed
-    def float_leg_pv(self):
-        df = 1.0 / (1.0 + self.float_rate) ** self.tenor_years
-        return self.notional * self.float_rate * self.tenor_years * df
-
-    @computed
-    def npv(self):
-        float_df = 1.0 / (1.0 + self.float_rate) ** self.tenor_years
-        fixed_df = 1.0 / (1.0 + self.fixed_rate) ** self.tenor_years
-        float_pv = self.notional * self.float_rate * self.tenor_years * float_df
-        fixed_pv = self.notional * self.fixed_rate * self.tenor_years * fixed_df
-        return float_pv - fixed_pv
-
-    @computed
-    def dv01(self):
-        return self.notional * self.tenor_years * 0.0001
-
-    @computed
-    def pnl_status(self) -> str:
-        float_df = 1.0 / (1.0 + self.float_rate) ** self.tenor_years
-        fixed_df = 1.0 / (1.0 + self.fixed_rate) ** self.tenor_years
-        float_pv = self.notional * self.float_rate * self.tenor_years * float_df
-        fixed_pv = self.notional * self.fixed_rate * self.tenor_years * fixed_df
-        npv = float_pv - fixed_pv
-        if npv > 0:
-            return "PROFIT"
-        if npv < 0:
-            return "LOSS"
-        return "FLAT"
-
-    @effect("npv")
-    def on_npv(self, value):
-        self.tick()
-
-
-@ticking
-@dataclass
-class SwapPortfolio(Storable):
-    """Aggregate portfolio.  @computed reads child swap NPVs (cross-entity)."""
-    __key__ = "name"
-
-    name: str = ""
-    swaps: list = field(default_factory=list)
-
-    @computed
-    def total_npv(self):
-        return sum(s.npv for s in self.swaps) if self.swaps else 0.0
-
-    @computed
-    def total_dv01(self):
-        return sum(s.dv01 for s in self.swaps) if self.swaps else 0.0
-
-    @computed
-    def max_npv(self):
-        return max(s.npv for s in self.swaps) if self.swaps else 0.0
-
-    @computed
-    def min_npv(self):
-        return min(s.npv for s in self.swaps) if self.swaps else 0.0
-
-    @computed
-    def swap_count(self) -> int:
-        return len(self.swaps) if self.swaps else 0
-
-    @effect("total_npv")
-    def on_total_npv(self, value):
-        self.tick()
-
+portfolios = {
+    "ALL": SwapPortfolio(name="ALL", swaps=list(swaps.values())),
+    "USD": SwapPortfolio(name="USD", swaps=usd_swaps),
+    "JPY": SwapPortfolio(name="JPY", swaps=jpy_swaps),
+}
 
 # ── 3. Publish @ticking tables to DH global scope ────────────────────────
+from ir.models import InterestRateSwap
+
 tables = get_tables()
 
 # Aggregates
@@ -243,195 +101,48 @@ tables["swap_summary"] = swap_summary
 for name, tbl in tables.items():
     tbl.publish(name)
 
-
-# ── 4. Build reactive objects — cross-entity refs wired at construction ───
-print("  Building reactive objects...")
-
-# FX spots (initial values match market data server's FX_BASE)
-fx_spots = {
-    "USD/JPY": FXSpot(pair="USD/JPY", bid=149.50, ask=149.60, currency="JPY"),
-    "EUR/USD": FXSpot(pair="EUR/USD", bid=1.0850, ask=1.0855, currency="USD"),
-    "GBP/USD": FXSpot(pair="GBP/USD", bid=1.2700, ask=1.2710, currency="USD"),
-}
-
-# Benchmark FX refs: which FX pair drives each currency's curve
-_usd_fx = fx_spots["EUR/USD"]
-_jpy_fx = fx_spots["USD/JPY"]
-
-# Yield curve points (USD) — rate is @computed from fx_ref.mid
-usd_curve_data = [
-    ("USD_3M",  0.25, 0.0525),
-    ("USD_1Y",  1.0,  0.0490),
-    ("USD_2Y",  2.0,  0.0445),
-    ("USD_5Y",  5.0,  0.0410),
-    ("USD_10Y", 10.0, 0.0395),
-    ("USD_30Y", 30.0, 0.0420),
-]
-usd_curve_points = {}
-for label, tenor, base_rate in usd_curve_data:
-    usd_curve_points[label] = YieldCurvePoint(
-        label=label, tenor_years=tenor, base_rate=base_rate,
-        sensitivity=0.5, currency="USD",
-        fx_ref=_usd_fx, fx_base_mid=_usd_fx.mid,
-    )
-
-# JPY curve points — driven by USD/JPY
-jpy_curve_data = [
-    ("JPY_1Y",  1.0,  0.001),
-    ("JPY_5Y",  5.0,  0.005),
-    ("JPY_10Y", 10.0, 0.008),
-]
-jpy_curve_points = {}
-for label, tenor, base_rate in jpy_curve_data:
-    jpy_curve_points[label] = YieldCurvePoint(
-        label=label, tenor_years=tenor, base_rate=base_rate,
-        sensitivity=0.5, currency="JPY",
-        fx_ref=_jpy_fx, fx_base_mid=_jpy_fx.mid,
-    )
-
-all_curve_points = {**usd_curve_points, **jpy_curve_points}
-
-# Interest rate swaps — float_rate is @computed from curve_ref.rate
-# Each swap references its tenor-matched curve point
-_swap_curve_map = {
-    "USD-5Y-A": "USD_5Y",
-    "USD-5Y-B": "USD_5Y",
-    "USD-10Y":  "USD_10Y",
-    "USD-2Y":   "USD_2Y",
-    "JPY-5Y":   "JPY_5Y",
-    "JPY-10Y":  "JPY_10Y",
-}
-
-swap_configs = [
-    ("USD-5Y-A", 50_000_000,  0.0400, 5.0,  "USD"),
-    ("USD-5Y-B", 25_000_000,  0.0380, 5.0,  "USD"),
-    ("USD-10Y",  100_000_000, 0.0395, 10.0, "USD"),
-    ("USD-2Y",   75_000_000,  0.0450, 2.0,  "USD"),
-    ("JPY-5Y",   5_000_000_000, 0.005, 5.0,  "JPY"),
-    ("JPY-10Y",  10_000_000_000, 0.008, 10.0, "JPY"),
-]
-
-swaps = {}
-for sym, notl, fixed, tenor, ccy in swap_configs:
-    swaps[sym] = InterestRateSwap(
-        symbol=sym, notional=notl, fixed_rate=fixed,
-        tenor_years=tenor, currency=ccy,
-        curve_ref=all_curve_points[_swap_curve_map[sym]],
-    )
-
-# Swap portfolios — @computed aggregates react to child swap changes
-usd_swaps = [s for s in swaps.values() if s.currency == "USD"]
-jpy_swaps = [s for s in swaps.values() if s.currency == "JPY"]
-
-portfolios = {
-    "ALL": SwapPortfolio(name="ALL", swaps=list(swaps.values())),
-    "USD": SwapPortfolio(name="USD", swaps=usd_swaps),
-    "JPY": SwapPortfolio(name="JPY", swaps=jpy_swaps),
-}
-
-# All initial DH pushes happened automatically via @effects during construction.
-# Just flush the DH update graph once.
 flush()
 
-# Drain initial CurveTick publishes (they'll be sent on first WS connect)
-_initial_curve_ticks = list(_curve_publish_queue)
-_curve_publish_queue.clear()
+# Drain initial CurveTick publishes
+_initial_curve_ticks = list(curve_publish_queue)
+curve_publish_queue.clear()
 
-print(f"  Built: {len(fx_spots)} FX spots, {len(all_curve_points)} curve points, "
+print(f"  Built: {len(fx_spots)} FX spots, "
+      f"{len(graph['all_curve_points'])} curve points, "
       f"{len(swaps)} swaps, {len(portfolios)} portfolios")
 print("  All initial state pushed to DH via @effect (no manual push needed)")
 
-
-# ── 5. Market Data Server WebSocket consumer ─────────────────────────────
-
-MD_SERVER_URL = "ws://localhost:8000/md/subscribe"
-RECONNECT_DELAY = 2
+# ── 4. Market Data consumer ──────────────────────────────────────────────
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-_log = logging.getLogger("irs-md-consumer")
+
+tick_count = 0
 
 
-async def _consume_and_publish():
-    """Connect to the Market Data Server, consume FX ticks, publish curves back.
-
-    Each FX tick triggers the FULL reactive cascade via a single batch_update():
-      batch_update(bid, ask)
-        → @computed mid          → @effect → fx_writer
-        → @computed rate         → @effect → curve_writer + CurveTick queue
-        → @computed float_rate   → @computed npv → @effect → swap_writer
-        → @computed total_npv    → @effect → portfolio_writer
-
-    No imperative push functions — every DH write is an @effect side-effect.
-    """
-    import websockets
-
-    tick_count = 0
-
-    while True:
-        try:
-            _log.info("Connecting to Market Data Server at %s ...", MD_SERVER_URL)
-            async with websockets.connect(MD_SERVER_URL) as ws:
-                # Subscribe to FX ticks only
-                await ws.send(json.dumps({"types": ["fx"]}))
-                _log.info("Connected — consuming FX ticks, full reactive cascade active")
-
-                # Publish any initial CurveTicks
-                for ct in _initial_curve_ticks:
-                    await ws.send(json.dumps(ct))
-
-                async for msg_str in ws:
-                    tick = json.loads(msg_str)
-                    if tick.get("type") != "fx":
-                        continue
-
-                    pair = tick["pair"]
-                    fx = fx_spots.get(pair)
-                    if fx is None:
-                        continue
-
-                    # ── THE ONLY IMPERATIVE CALL ──────────────────────
-                    # Everything else is reactive: @computed recalcs +
-                    # @effect DH pushes all fire inside batch_update().
-                    fx.batch_update(bid=tick["bid"], ask=tick["ask"])
-
-                    # Flush update graph (all writes already queued by @effects)
-                    flush()
-
-                    tick_count += 1
-
-                    # Publish derived CurveTicks back to the hub
-                    while _curve_publish_queue:
-                        await ws.send(json.dumps(_curve_publish_queue.popleft()))
-
-                    # Print summary every 10th tick
-                    if tick_count % 10 == 0:
-                        usdjpy = fx_spots["USD/JPY"].mid
-                        usd_5y = usd_curve_points["USD_5Y"].rate * 100
-                        jpy_10y = jpy_curve_points["JPY_10Y"].rate * 100
-                        p_all = portfolios["ALL"]
-
-                        print(
-                            f"  [{tick_count:4d}] "
-                            f"USD/JPY {usdjpy:.2f}  |  "
-                            f"USD 5Y: {usd_5y:.2f}%  |  "
-                            f"JPY 10Y: {jpy_10y:.3f}%  |  "
-                            f"Portfolio NPV: ${p_all.total_npv:+,.0f}"
-                        )
-
-        except Exception as e:
-            _log.warning(
-                "Market Data connection lost (%s). Retrying in %ds...",
-                e, RECONNECT_DELAY,
-            )
-            await asyncio.sleep(RECONNECT_DELAY)
+def _on_tick(count: int) -> None:
+    global tick_count
+    tick_count = count
+    flush()
+    if count % 10 == 0:
+        usdjpy = fx_spots["USD/JPY"].mid
+        usd_5y = usd_curve_points["USD_5Y"].rate * 100
+        jpy_10y = jpy_curve_points["JPY_10Y"].rate * 100
+        p_all = portfolios["ALL"]
+        print(
+            f"  [{count:4d}] "
+            f"USD/JPY {usdjpy:.2f}  |  "
+            f"USD 5Y: {usd_5y:.2f}%  |  "
+            f"JPY 10Y: {jpy_10y:.3f}%  |  "
+            f"Portfolio NPV: ${p_all.total_npv:+,.0f}"
+        )
 
 
-def _start_md_consumer():
-    """Run the market data consumer in a background thread with its own loop."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(_consume_and_publish())
-
+consumer = MarketDataConsumer(
+    fx_spots=fx_spots,
+    on_tick=_on_tick,
+    curve_publish_queue=curve_publish_queue,
+    initial_curve_ticks=_initial_curve_ticks,
+)
 
 print()
 print("=" * 70)
@@ -457,16 +168,11 @@ print("  Press Ctrl+C to stop.")
 print("=" * 70)
 print()
 
-# Start the WS consumer in a daemon thread
-_md_thread = threading.Thread(
-    target=_start_md_consumer, daemon=True, name="irs-md-consumer",
-)
-_md_thread.start()
+consumer.start_background(name="irs-md-consumer")
 
 try:
-    # Keep main thread alive
+    import time
     while True:
-        import time
         time.sleep(1)
 except KeyboardInterrupt:
     print("\n  Shutting down...")
