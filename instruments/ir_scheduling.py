@@ -491,22 +491,28 @@ _load_ql_factories()
 def calendar_for(currency: str) -> Calendar:
     """Return the conventional calendar for *currency*.
 
-    Uses a real QuantLib calendar when ``QuantLib`` (pip install QuantLib) is
-    installed.  Falls back to :class:`WeekendsOnlyCalendar` silently.
-
-    Examples
-    --------
-    >>> cal = calendar_for("USD")   # QuantLibCalendar if QL installed, else WeekendsOnly
-    >>> cal.is_business_day(__import__('datetime').date(2026, 3, 20))
-    True
+    Prioritizes the local YAML-based CalendarFactory. Falls back to 
+    QuantLib if a specific YAML entry is not found.
     """
+    from instruments.calendars import CalendarFactory
+    
+    # 1. Try local YAML config
+    cal = CalendarFactory.get_calendar(currency)
+    # Check if the returned calendar is actually defined in the cache or a default
+    # If name matches but it's not weekends-only, we use it.
+    if cal.name() == currency.upper() and len(cal.fixed) > 0:
+        return cal # type: ignore[return-value]
+
+    # 2. Fallback to QuantLib
     factory = _QL_CALENDAR_FACTORIES.get(currency.upper())
     if factory is not None:
         try:
-            return QuantLibCalendar(factory())
+            return QuantLibCalendar(factory()) # type: ignore[return-value]
         except Exception:
             pass
-    return WeekendsOnlyCalendar()
+            
+    # 3. Final Fallback to the local instance (might just be WeekendsOnly in effect)
+    return cal # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
@@ -529,6 +535,16 @@ def _last_dom(d: ISODate) -> ISODate:
 
 def _is_eom(d: ISODate) -> bool:
     return d.day == _cal_mod.monthrange(d.year, d.month)[1]
+
+
+def get_imm_date(month: int, year: int) -> ISODate:
+    """Return the IMM date (3rd Wednesday) for a given month/year."""
+    # Start at the 1st of the month
+    first_day = ISODate(year, month, 1)
+    # weekday() is 0=Mon, 2=Wed
+    first_wed_offset = (2 - first_day.weekday() + 7) % 7
+    # 3rd Wednesday is first Wednesday + 14 days
+    return first_day + datetime.timedelta(days=first_wed_offset + 14)
 
 
 # ---------------------------------------------------------------------------
