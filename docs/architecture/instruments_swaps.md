@@ -32,6 +32,13 @@ Specialized instrument for multi-currency Overnight Indexed Swaps (OIS):
 - **Future Periods**: Leverages the **Telescopic Property** for projection. By using the ratio of discount factors at the start and end of the accrual period, we maintain 100% numerical parity with QuantLib's `OvernightIndexedCoupon` while significantly reducing expression complexity.
 - **Risk Propagation**: Fully compatible with the `CurveFitter` for benchmark bootstrap and analytic bucket risk (via Implicit Function Theorem).
 
+### `IRSwapXCCYOIS` (Cross-Currency OIS)
+A multi-currency basis swap where both legs use RFR daily compounding:
+- **Dual Index Resolution**: Independently maps Leg 1 and Leg 2 currencies to their respective overnight indices (e.g., JPY TONAR + Spread vs. USD SOFR).
+- **Basis Spread**: Configurable basis spread applied to Leg 1 floating payments.
+- **Notional Exchange**: Standard initial/final exchange logic included in the NPV expression tree.
+- **Cross-Curve Risk**: The platform's symbolic engine naturally differentiates the NPV with respect to both currencies' yield curves simultaneously (∂NPV / ∂JPY_Pillar and ∂NPV / ∂USD_Pillar).
+
 ### `IRSwapFloatFloat` (4 Curves)
 Extends the exact explicit design architecture structure natively symmetrically across a generic `leg1_` and `leg2_` schema parameter definition boundary natively (Basis Swaps, Cross-Currency Swaps, Tenor Swaps).
 - Configures 4 potential distinct curves analytically natively: `leg1_discount_curve`, `leg1_projection_curve`, `leg2_discount_curve`, `leg2_projection_curve` respectively across the object structure dynamically globally recursively. 
