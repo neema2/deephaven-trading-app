@@ -66,12 +66,12 @@ Older benchmarks on 5,000 simple swaps showed that `IntegratedShortRateCurve` (I
 
 ---
 
-## 🛡️ SOFR OIS Validation (April 2026)
+## 🛡️ OIS Yield Curve Validation (April 2026)
 
-We performed a formal side-by-side comparison between the `py-flow` **`IRSOFRSwap`** instrument and **QuantLib** (`OvernightIndexedCoupon`) to ensure industrial-grade accuracy for the shift from LIBOR to SOFR.
+We performed a formal side-by-side comparison between the `py-flow` **`IRSwapFixedOIS`** instrument and **QuantLib** (`OvernightIndexedCoupon`) to ensure industrial-grade accuracy for the global shift to Risk-Free Rates (RFRs).
 
 ### 1. Numerical Parity (NPV)
-Using the **Telescopic Property** for future periods and **Historical Fixings** for aged periods, we achieved machine-precision parity.
+Using the **Telescopic Property** for future periods and **Historical Fixings** for aged periods, we achieved machine-precision parity for **USD SOFR**, **EUR ESTR**, and **GBP SONIA**.
 
 | Metric | `py-flow` | QuantLib | Difference |
 | :--- | :--- | :--- | :--- |

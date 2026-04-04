@@ -25,10 +25,11 @@ In the modern post-Libor financial paradigm, OIS/SOFR structures organically man
 - Organically explicitly discounts the face value natively against `discount_curve.df(end)`.
 - Replaces the generic schema `curve` parameter entirely against explicitly segmented DBOS `discount_curve` and `projection_curve` attributes recursively organically globally.
 
-### `IRSOFRSwap` (OIS Compounding)
-Specialized USD SOFR instrument using daily compounding on the floating leg:
-- **Aged Periods**: Automatically detects if the current period has started (evaluation date > period start) and uses historical SOFR fixings.
-- **Future Periods**: Leverages the **Telescopic Property** for projection. By using the ratio of discount factors at the start and end of the accrual period, we avoid the overhead of daily Brownian motion simulation while maintaining 100% numerical parity with QuantLib's `OvernightIndexedCoupon`.
+### `IRSwapFixedOIS` (OIS Compounding)
+Specialized instrument for multi-currency Overnight Indexed Swaps (OIS):
+- **Index Resolution**: Automatically maps currency (USD, EUR, GBP, JPY, etc.) to the appropriate index (SOFR, ESTR, SONIA, TONAR, etc.).
+- **Aged Periods**: Automatically detects if the current period has started and leverages historical fixing rates.
+- **Future Periods**: Leverages the **Telescopic Property** for projection. By using the ratio of discount factors at the start and end of the accrual period, we maintain 100% numerical parity with QuantLib's `OvernightIndexedCoupon` while significantly reducing expression complexity.
 - **Risk Propagation**: Fully compatible with the `CurveFitter` for benchmark bootstrap and analytic bucket risk (via Implicit Function Theorem).
 
 ### `IRSwapFloatFloat` (4 Curves)

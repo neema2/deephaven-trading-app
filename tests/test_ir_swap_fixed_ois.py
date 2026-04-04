@@ -13,8 +13,6 @@ def mock_computed(fn):
     return property(fn)
 
 def mock_computed_expr(fn):
-    # In the code, computed_expr methods are called: self.fixed_leg_pv()
-    # So we keep them as methods.
     return fn
 
 mock_reactive.computed = mock_computed
@@ -26,6 +24,7 @@ def mock_sum(iterable):
     return sum(iterable) if iterable else 0.0
 mock_reactive.Sum = mock_sum
 
+# Force early mock injection to avoid real imports
 for mod in ["reactive", "reactive.computed", "reactive.computed_expr", "reactive.expr"]:
     sys.modules[mod] = mock_reactive
 
@@ -51,7 +50,7 @@ sys.modules["instruments.portfolio"] = MagicMock()
 
 # Now we can safely import our local modules
 import instruments.ir_scheduling as sched
-from instruments.ir_sofr_swap import IRSOFRSwap
+from instruments.ir_swap_fixed_ois import IRSwapFixedOIS
 
 class MockCurve:
     """Simple discount curve for testing."""
@@ -61,20 +60,47 @@ class MockCurve:
     
     def df(self, date: datetime.date) -> float:
         """Simple Act/365 exponential discounting for tests."""
+        # Use a fixed today for stable tests
         today = datetime.date(2026, 1, 1)
-        t = (date - today).days / 365.0
+        if isinstance(date, (float, int)):
+            # Handle tenor-based df call
+            t = float(date)
+        else:
+            t = (date - today).days / 365.2425
         import math
         return math.exp(-self.rate * t)
 
-def test_future_sofr_swap_npv():
-    """Verify that a future SOFR swap (forward-starting) uses the telescopic property."""
+def test_ois_index_auto_resolution():
+    """Verify that the correct Overnight Index is selected based on currency."""
     curve = MockCurve(rate=0.05)
     
+    # USD -> SOFR
+    usd_swap = IRSwapFixedOIS(currency="USD", discount_curve=curve)
+    assert usd_swap.index_name == "SOFR"
+    
+    # EUR -> ESTR
+    eur_swap = IRSwapFixedOIS(currency="EUR", discount_curve=curve)
+    assert eur_swap.index_name == "ESTR"
+    
+    # GBP -> SONIA
+    gbp_swap = IRSwapFixedOIS(currency="GBP", discount_curve=curve)
+    assert gbp_swap.index_name == "SONIA"
+    
+    # JPY -> TONAR
+    jpy_swap = IRSwapFixedOIS(currency="JPY", discount_curve=curve)
+    assert jpy_swap.index_name == "TONAR"
+
+def test_future_ois_swap_npv():
+    """Verify that a future OIS swap (forward-starting) uses the telescopic property."""
+    curve = MockCurve(rate=0.05)
+    
+    # Set dates
+    eval_date = datetime.date(2026, 1, 1)
     effective = datetime.date(2026, 6, 1)
     maturity = datetime.date(2031, 6, 1)
     
-    swap = IRSOFRSwap(
-        symbol="USD_SOFR_5Y",
+    swap = IRSwapFixedOIS(
+        symbol="USD_OIS_5Y",
         notional=1_000_000.0,
         fixed_rate=0.048, 
         effective_date=effective,
@@ -82,44 +108,46 @@ def test_future_sofr_swap_npv():
         frequency_months=12,
         side="RECEIVER",
         discount_curve=curve,
-        evaluation_date_override=datetime.date(2026, 1, 1)
+        evaluation_date_override=eval_date
     )
     
-    # NPV calculation should trigger our new compounding logic
+    # PV_fixed = Σ [notional * rate * tau * df_end]
+    # PV_float = notional * (df_start - df_end)
     npv = swap.npv()
-    print(f"Future NPV: {npv}")
+    print(f"OIS Future NPV: {npv}")
     
     sch = swap.schedule
+    df_start = curve.df(sch[0])
+    df_end = curve.df(sch[-1])
+    pv_float = 1_000_000.0 * (df_start - df_end)
+    
+    # Manual fixed leg calculation
     pv_fixed = 0.0
     dcc_fixed = sched.DayCountConvention.Thirty360US
     for i in range(len(sch) - 1):
         tau = sched.year_fraction(sch[i], sch[i+1], dcc_fixed)
         pv_fixed += 1_000_000.0 * 0.048 * tau * curve.df(sch[i+1])
         
-    df_start = curve.df(sch[0])
-    df_end = curve.df(sch[-1])
-    pv_float = 1_000_000.0 * (df_start - df_end)
-    
     expected_npv = pv_fixed - pv_float
     assert abs(npv - expected_npv) < 1.0 
 
-def test_aged_sofr_swap_npv():
-    """Verify that an aged SOFR swap (already started) uses the historical fixings."""
+def test_aged_ois_swap_npv():
+    """Verify that an aged OIS swap (already started) uses the historical fixings."""
     curve = MockCurve(rate=0.05)
     
     today = datetime.date(2026, 6, 1)
     effective = datetime.date(2026, 1, 1)
     maturity = datetime.date(2028, 1, 1)
     
-    # 5 months of fixings
+    # Populate mock fixings
     fixings = {}
     curr = effective
     while curr < today:
         fixings[curr] = 0.04
         curr += datetime.timedelta(days=1)
         
-    swap = IRSOFRSwap(
-        symbol="USD_SOFR_2Y_AGED",
+    swap = IRSwapFixedOIS(
+        symbol="USD_OIS_AGED",
         notional=1_000_000.0,
         fixed_rate=0.045,
         effective_date=effective,
@@ -132,11 +160,12 @@ def test_aged_sofr_swap_npv():
     )
     
     npv = swap.npv()
-    print(f"Aged NPV: {npv}")
+    print(f"OIS Aged NPV: {npv}")
     assert npv is not None
     assert abs(npv) > 0.0
 
 if __name__ == "__main__":
-    test_future_sofr_swap_npv()
-    test_aged_sofr_swap_npv()
-    print("OIS tests passed!")
+    test_ois_index_auto_resolution()
+    test_future_ois_swap_npv()
+    test_aged_ois_swap_npv()
+    print("All IRSwapFixedOIS tests passed!")

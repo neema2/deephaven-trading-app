@@ -1,7 +1,9 @@
 """
-ir_sofr_swap.py — USD SOFR Overnight Indexed Swap (OIS)
+ir_swap_fixed_ois.py — Multi-Currency Overnight Indexed Swap (OIS)
 
-Implements the standard USD SOFR swap using daily compounding on the floating leg.
+Implements the standard Overnight Indexed Swap using daily compounding on the floating leg.
+Supports major RFRs (SOFR, ESTR, SONIA, etc.) with automatic index resolution based on currency.
+
 Supports:
 1.  Aged periods (uses historical fixings).
 2.  Future periods (uses telescopic property/approximation).
@@ -26,8 +28,8 @@ import instruments.ir_scheduling as sched
 
 @ticking(exclude={"discount_curve", "risk", "fixings"})
 @dataclass(config=ConfigDict(arbitrary_types_allowed=True))
-class IRSOFRSwap(Storable):
-    """USD SOFR Overnight Indexed Swap (OIS).
+class IRSwapFixedOIS(Storable):
+    """Multi-Currency Overnight Indexed Swap (OIS).
     
     Attributes
     ----------
@@ -45,10 +47,12 @@ class IRSOFRSwap(Storable):
         Payment frequency (standard OIS is 12).
     side: str
         "RECEIVER" (receives fixed) or "PAYER" (pays fixed).
+    currency: str
+        ISO currency code (e.g., USD, EUR, GBP).
     discount_curve: object
-        Curve providing .df(target_date) for discounting and SOFR projection.
+        Curve providing .df(target_date) for discounting and index projection.
     fixings: dict[datetime.date, float]
-        Historical daily SOFR rates for aged coupons.
+        Historical daily fixing rates (index depends on currency).
     """
     __key__ = "symbol"
     
@@ -67,6 +71,22 @@ class IRSOFRSwap(Storable):
     evaluation_date_override: Optional[datetime.date] = None
 
     @computed
+    def index_name(self) -> str:
+        """Map currency to its corresponding Overnight Index."""
+        mapping = {
+            "USD": "SOFR",
+            "EUR": "ESTR",
+            "GBP": "SONIA",
+            "AUD": "AONIA",
+            "CAD": "CORRA",
+            "SGD": "SORA",
+            "SGP": "SORA", # User requested SGP
+            "CHF": "SARON",
+            "JPY": "TONAR"
+        }
+        return mapping.get(self.currency.upper(), f"{self.currency.upper()}_OIS")
+
+    @computed
     def tenor_years(self) -> float:
         """Tenor of the swap in years (used by fitter)."""
         if not self.effective_date or not self.termination_date:
@@ -77,7 +97,6 @@ class IRSOFRSwap(Storable):
     def evaluation_date(self) -> datetime.date:
         if self.evaluation_date_override:
             return self.evaluation_date_override
-        # Fallback to today if no override
         return datetime.date.today()
 
     @computed
@@ -119,7 +138,6 @@ class IRSOFRSwap(Storable):
         for i in range(len(sch) - 1):
             end = sch[i+1]
             tau = sched.year_fraction(sch[i], end, dcc)
-            # Use tenor in years (float) for the curve
             df = self.discount_curve.df(self._tenor(end))
             pvs.append(self.notional * self.fixed_rate * tau * df)
         return Sum(pvs)
@@ -186,13 +204,9 @@ class IRSOFRSwap(Storable):
     @computed_expr
     def par_rate(self) -> Expr:
         """The fixed rate that would make the current NPV zero."""
-        # PV_float / Annuity
         if not self.schedule:
             return 0.0
             
-        # Annuity = fixed_leg_pv / fixed_rate
-        # par_rate = float_leg_pv / (Annuity)
-        
         sch = self.schedule
         dcc = sched.DayCountConvention.Thirty360US
         annuity_terms = []
