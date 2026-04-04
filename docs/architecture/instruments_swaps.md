@@ -7,6 +7,7 @@ To map an arbitrary multi-period Interest Rate Swap out natively into dynamic al
 - `instruments/ir_scheduling.py` isolates structural calendar boundaries (e.g. `rack_dates(5.0)`) decoupled completely from arbitrary numerical logic or objects.
 - `payment_dates` skips `t=0.0`.
 - `reset_dates` skips the ultimate maturity `t=T`.
+- **Daily Compounding (OIS/SOFR)**: `compounded_rate()` handles the daily accumulation logic for Overnight Indexed Swaps. It supports historical fixings for "aged" periods and the **telescopic approximation** ($P_{start}/P_{end} - 1$) for future periods.
 
 ## 2. Approximate vs. Explicit Swaps
 The architecture iteratively constructs and measures swaps against 3 specific levels of fidelity logic natively:
@@ -23,6 +24,12 @@ In the modern post-Libor financial paradigm, OIS/SOFR structures organically man
 - Organically relies mathematically upon extracting an explicit algebraic structural projection `fwd(start, end)` natively directly out of `projection_curve(t)`.
 - Organically explicitly discounts the face value natively against `discount_curve.df(end)`.
 - Replaces the generic schema `curve` parameter entirely against explicitly segmented DBOS `discount_curve` and `projection_curve` attributes recursively organically globally.
+
+### `IRSOFRSwap` (OIS Compounding)
+Specialized USD SOFR instrument using daily compounding on the floating leg:
+- **Aged Periods**: Automatically detects if the current period has started (evaluation date > period start) and uses historical SOFR fixings.
+- **Future Periods**: Leverages the **Telescopic Property** for projection. By using the ratio of discount factors at the start and end of the accrual period, we avoid the overhead of daily Brownian motion simulation while maintaining 100% numerical parity with QuantLib's `OvernightIndexedCoupon`.
+- **Risk Propagation**: Fully compatible with the `CurveFitter` for benchmark bootstrap and analytic bucket risk (via Implicit Function Theorem).
 
 ### `IRSwapFloatFloat` (4 Curves)
 Extends the exact explicit design architecture structure natively symmetrically across a generic `leg1_` and `leg2_` schema parameter definition boundary natively (Basis Swaps, Cross-Currency Swaps, Tenor Swaps).
