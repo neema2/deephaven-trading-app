@@ -119,6 +119,9 @@ class CoinbaseExchangeFeed(MarketDataFeed):
     def product_ids(self) -> list[str]:
         return list(self._product_ids)
 
+    def symbols(self) -> dict[str, list[str]]:
+        return {"equity": list(self._product_ids), "fx": []}
+
     async def start(self, bus: TickBus) -> None:
         self._stop_event.clear()
         logger.info(

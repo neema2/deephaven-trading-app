@@ -50,6 +50,11 @@ def test_coinbase_feed_defaults() -> None:
     assert f.product_ids == ["BTC-USD", "ETH-USD"]
 
 
+def test_coinbase_feed_symbols() -> None:
+    f = CoinbaseExchangeFeed(product_ids=["BTC-USD", "ETH-USD"])
+    assert f.symbols() == {"equity": ["BTC-USD", "ETH-USD"], "fx": []}
+
+
 def test_parse_time_offset() -> None:
     msg = {
         "type": "ticker",

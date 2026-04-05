@@ -24,7 +24,7 @@ from timeseries.admin import TSDBConsumer, create_backend
 from marketdata.bus import TickBus
 from marketdata.consumers.ws_publisher import WebSocketPublisher
 from marketdata.feed import MarketDataFeed
-from marketdata.feeds.simulator import FX_PAIRS, SYMBOLS, SimulatorFeed
+from marketdata.feeds.simulator import SimulatorFeed
 from marketdata.models import (
     MarketDataMessage,
     Subscription,
@@ -129,14 +129,7 @@ async def health() -> dict:
 @app.get("/md/symbols")
 async def get_symbols() -> dict:
     """Return the symbol universe grouped by type."""
-    feed = app.state.feed
-    if feed.name == "coinbase":
-        products = getattr(feed, "product_ids", [])
-        return {"equity": list(products), "fx": []}
-    return {
-        "equity": list(SYMBOLS),
-        "fx": list(FX_PAIRS),
-    }
+    return app.state.feed.symbols()
 
 
 @app.get("/md/snapshot")

@@ -32,3 +32,7 @@ class MarketDataFeed(ABC):
     @abstractmethod
     def name(self) -> str:
         """Human-readable name for this feed (e.g. 'simulator', 'polygon')."""
+
+    @abstractmethod
+    def symbols(self) -> dict[str, list[str]]:
+        """Return the symbol universe grouped by type (e.g. equity, fx)."""
