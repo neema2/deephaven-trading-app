@@ -488,7 +488,33 @@ def _load_ql_factories() -> None:
 _load_ql_factories()
 
 
-def calendar_for(currency: str) -> Calendar:
+# ── Calendar Mapping ────────────────────────────────────────────────────────
+
+_PAYMENT_CALENDARS = {
+    "USD": "US",
+    "EUR": "TARGET",
+    "GBP": "GB",
+    "JPY": "JP",
+    "AUD": "AU",
+    "CAD": "CA",
+    "CHF": "CH",
+    "SGD": "SG",
+    "SGP": "SG",
+}
+
+_FIXING_CALENDARS = {
+    "USD": "US_GOVT",     # SOFR/GOVT bond market
+    "EUR": "TARGET",
+    "GBP": "GB",
+    "JPY": "JP",
+    "AUD": "AU",
+    "CAD": "CA",
+    "CHF": "CH",
+    "SGD": "SG",
+}
+
+
+def calendar_for(currency: str, type: str = "payment") -> Calendar:
     """Return the conventional calendar for *currency*.
 
     Prioritizes the local YAML-based CalendarFactory. Falls back to 
@@ -496,14 +522,22 @@ def calendar_for(currency: str) -> Calendar:
     """
     from instruments.calendars import CalendarFactory
     
-    # 1. Try local YAML config
-    cal = CalendarFactory.get_calendar(currency)
+    # 1. Resolve logical calendar name from currency
+    if type == "fixing":
+        name = _FIXING_CALENDARS.get(currency.upper(), currency.upper())
+    else:
+        name = _PAYMENT_CALENDARS.get(currency.upper(), currency.upper())
+
+    # 2. Try local YAML config via logical name
+    cal = CalendarFactory.get_calendar(name)
+    
     # Check if the returned calendar is actually defined in the cache or a default
     # If name matches but it's not weekends-only, we use it.
-    if cal.name() == currency.upper() and len(cal.fixed) > 0:
+    # Note: CalendarFactory.get_calendar will create one if not in cache.
+    if cal.name() == name.upper() and len(cal.ad_hoc) > 0 or len(cal.fixed) > 0:
         return cal # type: ignore[return-value]
 
-    # 2. Fallback to QuantLib
+    # 3. Fallback to QuantLib (using original currency code for QL factory logic)
     factory = _QL_CALENDAR_FACTORIES.get(currency.upper())
     if factory is not None:
         try:
@@ -511,7 +545,7 @@ def calendar_for(currency: str) -> Calendar:
         except Exception:
             pass
             
-    # 3. Final Fallback to the local instance (might just be WeekendsOnly in effect)
+    # 4. Final Fallback to the local instance (might just be WeekendsOnly in effect)
     return cal # type: ignore[return-value]
 
 
