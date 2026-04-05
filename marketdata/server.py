@@ -23,6 +23,7 @@ from timeseries.admin import TSDBConsumer, create_backend
 
 from marketdata.bus import TickBus
 from marketdata.consumers.ws_publisher import WebSocketPublisher
+from marketdata.feed import MarketDataFeed
 from marketdata.feeds.simulator import FX_PAIRS, SYMBOLS, SimulatorFeed
 from marketdata.models import (
     MarketDataMessage,
@@ -33,11 +34,23 @@ from marketdata.models import (
 logger = logging.getLogger(__name__)
 
 
+def _create_marketdata_feed() -> MarketDataFeed:
+    """Select feed implementation via ``MARKETDATA_FEED`` (default: ``simulator``)."""
+    mode = os.environ.get("MARKETDATA_FEED", "simulator").strip().lower()
+    if mode in ("coinbase", "coinbase_exchange"):
+        from marketdata.feeds.coinbase_exchange import CoinbaseExchangeFeed
+
+        return CoinbaseExchangeFeed()
+    if mode not in ("simulator", "", "default"):
+        logger.warning("Unknown MARKETDATA_FEED=%r — using simulator", mode)
+    return SimulatorFeed()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup: create bus, start feed + WS publisher + TSDB. Shutdown: stop all."""
     bus = TickBus()
-    feed = SimulatorFeed()
+    feed = _create_marketdata_feed()
     ws_pub = WebSocketPublisher(bus)
 
     # Start TSDB backend + consumer (pluggable via TSDB_BACKEND env)
@@ -116,6 +129,10 @@ async def health() -> dict:
 @app.get("/md/symbols")
 async def get_symbols() -> dict:
     """Return the symbol universe grouped by type."""
+    feed = app.state.feed
+    if feed.name == "coinbase":
+        products = getattr(feed, "product_ids", [])
+        return {"equity": list(products), "fx": []}
     return {
         "equity": list(SYMBOLS),
         "fx": list(FX_PAIRS),
