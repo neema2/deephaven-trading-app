@@ -132,6 +132,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN", "B017", "RUF012", "E402"]  # tests: no annotations, broad raises OK, mutable class defaults OK, sys.path OK
 "demo_*" = ["ANN", "E402"]   # don't require annotations or top-level imports in demos
+"demo_dashboard_common.py" = ["ANN", "E402"]
 "demos/*" = ["ANN", "E402"]
 "examples/*" = ["ANN"]
 "store/columns/__init__.py" = ["E402"]  # REGISTRY must exist before domain imports

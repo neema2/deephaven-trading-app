@@ -78,7 +78,8 @@ def coinbase_ticker_to_tick(msg: dict[str, Any]) -> Tick | None:
     bid = _f(msg.get("best_bid"))
     ask = _f(msg.get("best_ask"))
     vol_f = _f(msg.get("volume_24h"))
-    volume = int(min(max(vol_f, 0), 2_147_483_647))
+    # Python int is unbounded; Tick.volume and TickingTable use int — no artificial cap.
+    volume = int(max(vol_f, 0))
 
     change = price - open_24h
     change_pct = (change / open_24h) * 100.0 if open_24h else 0.0
