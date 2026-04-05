@@ -165,6 +165,7 @@ def seeded_ticks(tsdb):
     for i, pair in enumerate(["EUR/USD", "GBP/USD"]):
         for j in range(3):
             ft = FXTick(
+                symbol=pair,
                 pair=pair,
                 bid=1.08 + i * 0.2 + j * 0.001,
                 ask=1.0805 + i * 0.2 + j * 0.001,
@@ -181,6 +182,7 @@ def seeded_ticks(tsdb):
     for i, label in enumerate(["USD_2Y", "USD_5Y"]):
         for j in range(2):
             ct = CurveTick(
+                symbol=label,
                 label=label,
                 tenor_years=2.0 + i * 3,
                 rate=0.04 + i * 0.005 + j * 0.001,
@@ -206,12 +208,20 @@ def seeded_ticks(tsdb):
 
 
 @pytest.fixture(scope="module")
-def lakehouse(stack):
-    """Lakehouse instance connected to the stack."""
+def lakehouse_namespace():
+    """Unique namespace for this test module run."""
+    import uuid
+    return f"test_ns_{uuid.uuid4().hex[:8]}"
+
+
+@pytest.fixture(scope="module")
+def lakehouse(stack, lakehouse_namespace):
+    """Lakehouse instance connected to the stack with a unique namespace."""
     from lakehouse import Lakehouse
     lh = Lakehouse(
         catalog_uri=stack.catalog_url,
         s3_endpoint=stack.s3_endpoint,
+        namespace=lakehouse_namespace,
     )
     yield lh
     lh.close()
@@ -252,310 +262,262 @@ class TestLakehouseRoundTrip:
         assert sync.state.ticks_synced == seeded_ticks["total"]
         assert sync.state.ticks_watermark is not None
 
-    def test_query_ticks_via_duckdb(self, stack, seeded_ticks):
+    def test_query_ticks_via_duckdb(self, lakehouse, seeded_ticks):
         """Query synced ticks via DuckDB — see real tick types and symbols."""
-        from lakehouse import Lakehouse
+        # Total tick count
+        tbl = lakehouse._fqn("ticks")
+        results = lakehouse.query(f"SELECT count(*) as cnt FROM {tbl}")
+        assert results[0]["cnt"] == seeded_ticks["total"]
 
-        lq = Lakehouse(
-            catalog_uri=stack.catalog_url,
-            s3_endpoint=stack.s3_endpoint,
-        )
-        try:
-            # Total tick count
-            results = lq.sql("SELECT count(*) as cnt FROM lakehouse.default.ticks")
-            assert results[0]["cnt"] == seeded_ticks["total"]
+        # By tick_type
+        results = lakehouse.query(f"""
+            SELECT tick_type, count(*) as cnt
+            FROM {tbl}
+            GROUP BY tick_type
+            ORDER BY tick_type
+        """)
+        type_counts = {r["tick_type"]: r["cnt"] for r in results}
+        assert type_counts["equity"] == len(seeded_ticks["equity"])
+        assert type_counts["fx"] == len(seeded_ticks["fx"])
+        assert type_counts["curve"] == len(seeded_ticks["curve"])
 
-            # By tick_type
-            results = lq.sql("""
-                SELECT tick_type, count(*) as cnt
-                FROM lakehouse.default.ticks
-                GROUP BY tick_type
-                ORDER BY tick_type
-            """)
-            type_counts = {r["tick_type"]: r["cnt"] for r in results}
-            assert type_counts["equity"] == len(seeded_ticks["equity"])
-            assert type_counts["fx"] == len(seeded_ticks["fx"])
-            assert type_counts["curve"] == len(seeded_ticks["curve"])
+        # Verify equity tick has price and symbol
+        results = lakehouse.query(f"""
+            SELECT symbol, price, volume
+            FROM {tbl}
+            WHERE tick_type = 'equity'
+            LIMIT 1
+        """)
+        assert results[0]["symbol"] in ("AAPL", "MSFT", "GOOG")
+        assert results[0]["price"] > 0
+        assert results[0]["volume"] > 0
 
-            # Verify equity tick has price and symbol
-            results = lq.sql("""
-                SELECT symbol, price, volume
-                FROM lakehouse.default.ticks
-                WHERE tick_type = 'equity'
-                LIMIT 1
-            """)
-            assert results[0]["symbol"] in ("AAPL", "MSFT", "GOOG")
-            assert results[0]["price"] > 0
-            assert results[0]["volume"] > 0
+        # Verify FX tick has mid and pair
+        results = lakehouse.query(f"""
+            SELECT symbol, mid, spread_pips
+            FROM {tbl}
+            WHERE tick_type = 'fx'
+            LIMIT 1
+        """)
+        assert results[0]["symbol"] in ("EUR/USD", "GBP/USD")
+        assert results[0]["mid"] > 0
 
-            # Verify FX tick has mid and pair
-            results = lq.sql("""
-                SELECT symbol, mid, spread_pips
-                FROM lakehouse.default.ticks
-                WHERE tick_type = 'fx'
-                LIMIT 1
-            """)
-            assert results[0]["symbol"] in ("EUR/USD", "GBP/USD")
-            assert results[0]["mid"] > 0
-
-        finally:
-            lq.close()
-
-    def test_ticks_row_count(self, stack, seeded_ticks):
+    def test_ticks_row_count(self, lakehouse, seeded_ticks):
         """Lakehouse.row_count('ticks') matches synced tick count."""
-        from lakehouse import Lakehouse
-
-        lq = Lakehouse(
-            catalog_uri=stack.catalog_url,
-            s3_endpoint=stack.s3_endpoint,
-        )
-        try:
-            count = lq.row_count("ticks")
-            assert count == seeded_ticks["total"]
-        finally:
-            lq.close()
+        count = lakehouse.row_count("ticks")
+        assert count == seeded_ticks["total"]
 
     # ── Ingest + Transform tests ──────────────────────────────────────────
 
-    def test_ingest_append(self, stack):
+    def test_ingest_append(self, lakehouse):
         """Ingest mode=append: raw append with _batch_id and _batch_ts."""
         import uuid as _uuid
 
-        from lakehouse import Lakehouse
-
         tbl = f"test_append_{_uuid.uuid4().hex[:8]}"
-        lh = Lakehouse(catalog_uri=stack.catalog_url, s3_endpoint=stack.s3_endpoint)
-        try:
-            data = [
-                {"symbol": "AAPL", "score": 0.95, "signal": "BUY"},
-                {"symbol": "MSFT", "score": 0.80, "signal": "HOLD"},
-                {"symbol": "GOOG", "score": 0.60, "signal": "SELL"},
-            ]
-            count = lh.ingest(tbl, data, mode="append")
-            assert count == 3
+        data = [
+            {"symbol": "AAPL", "score": 0.95, "signal": "BUY"},
+            {"symbol": "MSFT", "score": 0.80, "signal": "HOLD"},
+            {"symbol": "GOOG", "score": 0.60, "signal": "SELL"},
+        ]
+        count = lakehouse.ingest(tbl, data, mode="append")
+        assert count == 3
 
-            # Append more
-            count2 = lh.ingest(tbl, [{"symbol": "TSLA", "score": 0.70, "signal": "BUY"}], mode="append")
-            assert count2 == 1
+        # Append more
+        count2 = lakehouse.ingest(tbl, [{"symbol": "TSLA", "score": 0.70, "signal": "BUY"}], mode="append")
+        assert count2 == 1
 
-            # Query back — 4 total, has _batch_id/_batch_ts, no _is_current
-            results = lh.query(f"SELECT * FROM lakehouse.default.{tbl}")
-            assert len(results) == 4
-            assert "_batch_id" in results[0]
-            assert "_batch_ts" in results[0]
-            assert "_is_current" not in results[0]
+        # Query back — 4 total, has _batch_id/_batch_ts, no _is_current
+        fqn = lakehouse._fqn(tbl)
+        results = lakehouse.query(f"SELECT * FROM {fqn}")
+        assert len(results) == 4
+        assert "_batch_id" in results[0]
+        assert "_batch_ts" in results[0]
+        assert "_is_current" not in results[0]
 
-            # Two different batch IDs (one per ingest call)
-            batch_ids = set(r["_batch_id"] for r in results)
-            assert len(batch_ids) == 2
-        finally:
-            lh.close()
+        # Two different batch IDs (one per ingest call)
+        batch_ids = set(r["_batch_id"] for r in results)
+        assert len(batch_ids) == 2
 
-    def test_ingest_snapshot(self, stack):
+    def test_ingest_snapshot(self, lakehouse):
         """Ingest mode=snapshot: batch versioning with _is_current."""
         import uuid as _uuid
 
-        from lakehouse import Lakehouse
-
         tbl = f"test_snap_{_uuid.uuid4().hex[:8]}"
-        lh = Lakehouse(catalog_uri=stack.catalog_url, s3_endpoint=stack.s3_endpoint)
-        try:
-            # First batch
-            batch1 = [
-                {"symbol": "AAPL", "score": 0.90},
-                {"symbol": "MSFT", "score": 0.85},
-            ]
-            count = lh.ingest(tbl, batch1, mode="snapshot")
-            assert count == 2
+        # First batch
+        batch1 = [
+            {"symbol": "AAPL", "score": 0.90},
+            {"symbol": "MSFT", "score": 0.85},
+        ]
+        count = lakehouse.ingest(tbl, batch1, mode="snapshot")
+        assert count == 2
 
-            # Query current — 2 rows, all _is_current = true
-            results = lh.query(f"SELECT * FROM lakehouse.default.{tbl} WHERE _is_current = true")
-            assert len(results) == 2
-            batch_id_1 = results[0]["_batch_id"]
-            assert results[0]["_batch_ts"] is not None
+        # Query current — 2 rows, all _is_current = true
+        fqn = lakehouse._fqn(tbl)
+        results = lakehouse.query(f"SELECT * FROM {fqn} WHERE _is_current = true")
+        assert len(results) == 2
+        batch_id_1 = results[0]["_batch_id"]
+        assert results[0]["_batch_ts"] is not None
 
-            # Second batch (replaces first)
-            batch2 = [
-                {"symbol": "AAPL", "score": 0.95},
-                {"symbol": "GOOG", "score": 0.70},
-                {"symbol": "TSLA", "score": 0.60},
-            ]
-            count2 = lh.ingest(tbl, batch2, mode="snapshot")
-            assert count2 == 3
+        # Second batch (replaces first)
+        batch2 = [
+            {"symbol": "AAPL", "score": 0.95},
+            {"symbol": "GOOG", "score": 0.70},
+            {"symbol": "TSLA", "score": 0.60},
+        ]
+        count2 = lakehouse.ingest(tbl, batch2, mode="snapshot")
+        assert count2 == 3
 
-            # Current batch: 3 rows
-            current = lh.query(f"SELECT * FROM lakehouse.default.{tbl} WHERE _is_current = true")
-            assert len(current) == 3
-            batch_id_2 = current[0]["_batch_id"]
-            assert batch_id_2 != batch_id_1
+        # Current batch: 3 rows
+        current = lakehouse.query(f"SELECT * FROM {fqn} WHERE _is_current = true")
+        assert len(current) == 3
+        batch_id_2 = current[0]["_batch_id"]
+        assert batch_id_2 != batch_id_1
 
-            # Old batch still queryable
-            old = lh.query(f"SELECT * FROM lakehouse.default.{tbl} WHERE _batch_id = '{batch_id_1}'")
-            assert len(old) == 2
-            assert all(not r["_is_current"] for r in old)
+        # Old batch still queryable
+        old = lakehouse.query(f"SELECT * FROM {fqn} WHERE _batch_id = '{batch_id_1}'")
+        assert len(old) == 2
+        assert all(not r["_is_current"] for r in old)
 
-            # Total rows = 5 (2 expired + 3 current)
-            total = lh.query(f"SELECT count(*) as cnt FROM lakehouse.default.{tbl}")
-            assert total[0]["cnt"] == 5
-        finally:
-            lh.close()
+        # Total rows = 5 (2 expired + 3 current)
+        total = lakehouse.query(f"SELECT count(*) as cnt FROM {fqn}")
+        assert total[0]["cnt"] == 5
 
-    def test_ingest_incremental(self, stack):
+    def test_ingest_incremental(self, lakehouse):
         """Ingest mode=incremental: upsert by PK, soft delete, full audit trail."""
         import uuid as _uuid
 
-        from lakehouse import Lakehouse
-
         tbl = f"test_incr_{_uuid.uuid4().hex[:8]}"
-        lh = Lakehouse(catalog_uri=stack.catalog_url, s3_endpoint=stack.s3_endpoint)
-        try:
-            # Initial insert
-            data1 = [
-                {"trade_id": "T1", "symbol": "AAPL", "pnl": 100.0},
-                {"trade_id": "T2", "symbol": "MSFT", "pnl": 200.0},
-                {"trade_id": "T3", "symbol": "GOOG", "pnl": -50.0},
-            ]
-            count = lh.ingest(tbl, data1, mode="incremental", primary_key="trade_id")
-            assert count == 3
+        # Initial insert
+        data1 = [
+            {"trade_id": "T1", "symbol": "AAPL", "pnl": 100.0},
+            {"trade_id": "T2", "symbol": "MSFT", "pnl": 200.0},
+            {"trade_id": "T3", "symbol": "GOOG", "pnl": -50.0},
+        ]
+        count = lakehouse.ingest(tbl, data1, mode="incremental", primary_key="trade_id")
+        assert count == 3
 
-            # All current
-            current = lh.query(f"SELECT * FROM lakehouse.default.{tbl} WHERE _is_current = true ORDER BY trade_id")
-            assert len(current) == 3
-            assert current[0]["pnl"] == 100.0
-            assert current[0]["_batch_id"] is not None
+        # All current
+        fqn = lakehouse._fqn(tbl)
+        current = lakehouse.query(f"SELECT * FROM {fqn} WHERE _is_current = true ORDER BY trade_id")
+        assert len(current) == 3
+        assert current[0]["pnl"] == 100.0
+        assert current[0]["_batch_id"] is not None
 
-            # Update T1 and T2, leave T3 alone
-            data2 = [
-                {"trade_id": "T1", "symbol": "AAPL", "pnl": 150.0},
-                {"trade_id": "T2", "symbol": "MSFT", "pnl": 250.0},
-            ]
-            count2 = lh.ingest(tbl, data2, mode="incremental", primary_key="trade_id")
-            assert count2 == 2
+        # Update T1 and T2, leave T3 alone
+        data2 = [
+            {"trade_id": "T1", "symbol": "AAPL", "pnl": 150.0},
+            {"trade_id": "T2", "symbol": "MSFT", "pnl": 250.0},
+        ]
+        count2 = lakehouse.ingest(tbl, data2, mode="incremental", primary_key="trade_id")
+        assert count2 == 2
 
-            # Current rows: T1=150, T2=250, T3=-50 (unchanged)
-            current2 = lh.query(f"SELECT * FROM lakehouse.default.{tbl} WHERE _is_current = true ORDER BY trade_id")
-            assert len(current2) == 3
-            assert current2[0]["pnl"] == 150.0  # T1 updated
-            assert current2[1]["pnl"] == 250.0  # T2 updated
-            assert current2[2]["pnl"] == -50.0   # T3 unchanged
+        # Current rows: T1=150, T2=250, T3=-50 (unchanged)
+        current2 = lakehouse.query(f"SELECT * FROM {fqn} WHERE _is_current = true ORDER BY trade_id")
+        assert len(current2) == 3
+        assert current2[0]["pnl"] == 150.0  # T1 updated
+        assert current2[1]["pnl"] == 250.0  # T2 updated
+        assert current2[2]["pnl"] == -50.0   # T3 unchanged
 
-            # Historical: old T1 and T2 versions (UPDATE set _is_current=false in place)
-            history = lh.query(f"SELECT * FROM lakehouse.default.{tbl} WHERE _is_current = false")
-            assert len(history) == 2
-            old_pnls = sorted([r["pnl"] for r in history])
-            assert old_pnls == [100.0, 200.0]
+        # Historical: old T1 and T2 versions (UPDATE set _is_current=false in place)
+        history = lakehouse.query(f"SELECT * FROM {fqn} WHERE _is_current = false")
+        assert len(history) == 2
+        old_pnls = sorted([r["pnl"] for r in history])
+        assert old_pnls == [100.0, 200.0]
 
-            # Total rows = 5 (3 original with T1,T2 expired + 2 new current)
-            total = lh.query(f"SELECT count(*) as cnt FROM lakehouse.default.{tbl}")
-            assert total[0]["cnt"] == 5
-        finally:
-            lh.close()
+        # Total rows = 5 (3 original with T1,T2 expired + 2 new current)
+        total = lakehouse.query(f"SELECT count(*) as cnt FROM {fqn}")
+        assert total[0]["cnt"] == 5
 
-    def test_ingest_bitemporal(self, stack):
+    def test_ingest_bitemporal(self, lakehouse):
         """Ingest mode=bitemporal: system time + business time."""
         import uuid as _uuid
 
-        from lakehouse import Lakehouse
-
         tbl = f"test_bitemp_{_uuid.uuid4().hex[:8]}"
-        lh = Lakehouse(catalog_uri=stack.catalog_url, s3_endpoint=stack.s3_endpoint)
-        try:
-            data1 = [
-                {"entity_id": "E1", "value": 100.0},
-                {"entity_id": "E2", "value": 200.0},
-            ]
-            count = lh.ingest(tbl, data1, mode="bitemporal", primary_key="entity_id")
-            assert count == 2
+        data1 = [
+            {"entity_id": "E1", "value": 100.0},
+            {"entity_id": "E2", "value": 200.0},
+        ]
+        count = lakehouse.ingest(tbl, data1, mode="bitemporal", primary_key="entity_id")
+        assert count == 2
 
-            # Current: both have _is_current=True, _tx_time set, _valid_from set, _valid_to null
-            current = lh.query(f"SELECT * FROM lakehouse.default.{tbl} WHERE _is_current = true ORDER BY entity_id")
-            assert len(current) == 2
-            assert current[0]["_tx_time"] is not None
-            assert current[0]["_valid_from"] is not None
-            assert current[0]["_valid_to"] is None
-            assert current[0]["_batch_id"] is not None
+        # Current: both have _is_current=True, _tx_time set, _valid_from set, _valid_to null
+        fqn = lakehouse._fqn(tbl)
+        current = lakehouse.query(f"SELECT * FROM {fqn} WHERE _is_current = true ORDER BY entity_id")
+        assert len(current) == 2
+        assert current[0]["_tx_time"] is not None
+        assert current[0]["_valid_from"] is not None
+        assert current[0]["_valid_to"] is None
+        assert current[0]["_batch_id"] is not None
 
-            # Update E1
-            data2 = [{"entity_id": "E1", "value": 150.0}]
-            count2 = lh.ingest(tbl, data2, mode="bitemporal", primary_key="entity_id")
-            assert count2 == 1
+        # Update E1
+        data2 = [{"entity_id": "E1", "value": 150.0}]
+        count2 = lakehouse.ingest(tbl, data2, mode="bitemporal", primary_key="entity_id")
+        assert count2 == 1
 
-            # Current: E1=150, E2=200
-            current2 = lh.query(f"SELECT * FROM lakehouse.default.{tbl} WHERE _is_current = true ORDER BY entity_id")
-            assert len(current2) == 2
-            assert current2[0]["value"] == 150.0
+        # Current: E1=150, E2=200
+        current2 = lakehouse.query(f"SELECT * FROM {fqn} WHERE _is_current = true ORDER BY entity_id")
+        assert len(current2) == 2
+        assert current2[0]["value"] == 150.0
 
-            # Old E1 version: _is_current=False, _valid_to set
-            old = lh.query(f"SELECT * FROM lakehouse.default.{tbl} WHERE _is_current = false")
-            assert len(old) == 1
-            assert old[0]["entity_id"] == "E1"
-            assert old[0]["value"] == 100.0
-            assert old[0]["_valid_to"] is not None
-        finally:
-            lh.close()
+        # Old E1 version: _is_current=False, _valid_to set
+        old = lakehouse.query(f"SELECT * FROM {fqn} WHERE _is_current = false")
+        assert len(old) == 1
+        assert old[0]["entity_id"] == "E1"
+        assert old[0]["value"] == 100.0
+        assert old[0]["_valid_to"] is not None
 
-    def test_transform_append(self, stack, seeded_ticks):
+    def test_transform_append(self, lakehouse, seeded_ticks):
         """Transform mode=append: SQL result written to new table."""
         import uuid as _uuid
 
-        from lakehouse import Lakehouse
-
         tbl = f"test_xform_append_{_uuid.uuid4().hex[:8]}"
-        lh = Lakehouse(catalog_uri=stack.catalog_url, s3_endpoint=stack.s3_endpoint)
-        try:
-            count = lh.transform(
-                tbl,
-                "SELECT tick_type, count(*) as cnt FROM lakehouse.default.ticks GROUP BY tick_type",
-                mode="append",
-            )
-            assert count > 0
+        count = lakehouse.transform(
+            tbl,
+            f"SELECT tick_type, count(*) as cnt FROM {lakehouse._fqn('ticks')} GROUP BY tick_type",
+            mode="append",
+        )
+        assert count > 0
 
-            # Query back
-            results = lh.query(f"SELECT * FROM lakehouse.default.{tbl} ORDER BY cnt DESC")
-            assert len(results) > 0
-            assert "tick_type" in results[0]
-            assert "cnt" in results[0]
-            assert "_batch_id" in results[0]
-        finally:
-            lh.close()
+        # Query back
+        fqn = lakehouse._fqn(tbl)
+        results = lakehouse.query(f"SELECT * FROM {fqn} ORDER BY cnt DESC")
+        assert len(results) > 0
+        assert "tick_type" in results[0]
+        assert "cnt" in results[0]
+        assert "_batch_id" in results[0]
 
-    def test_transform_snapshot(self, stack, seeded_ticks):
+    def test_transform_snapshot(self, lakehouse, seeded_ticks):
         """Transform mode=snapshot: SQL materialized view with batch history."""
         import uuid as _uuid
 
-        from lakehouse import Lakehouse
-
         tbl = f"test_xform_snap_{_uuid.uuid4().hex[:8]}"
-        lh = Lakehouse(catalog_uri=stack.catalog_url, s3_endpoint=stack.s3_endpoint)
-        try:
-            # First run
-            count1 = lh.transform(
-                tbl,
-                "SELECT tick_type, count(*) as cnt FROM lakehouse.default.ticks GROUP BY tick_type",
-                mode="snapshot",
-            )
-            assert count1 > 0
+        # First run
+        count1 = lakehouse.transform(
+            tbl,
+            f"SELECT tick_type, count(*) as cnt FROM {lakehouse._fqn('ticks')} GROUP BY tick_type",
+            mode="snapshot",
+        )
+        assert count1 > 0
 
-            current1 = lh.query(f"SELECT * FROM lakehouse.default.{tbl} WHERE _is_current = true")
-            batch1 = current1[0]["_batch_id"]
+        fqn = lakehouse._fqn(tbl)
+        current1 = lakehouse.query(f"SELECT * FROM {fqn} WHERE _is_current = true")
+        batch1 = current1[0]["_batch_id"]
 
-            # Second run (same query, new batch)
-            count2 = lh.transform(
-                tbl,
-                "SELECT tick_type, count(*) as cnt FROM lakehouse.default.ticks GROUP BY tick_type",
-                mode="snapshot",
-            )
-            assert count2 > 0
+        # Second run (same query, new batch)
+        count2 = lakehouse.transform(
+            tbl,
+            f"SELECT tick_type, count(*) as cnt FROM {lakehouse._fqn('ticks')} GROUP BY tick_type",
+            mode="snapshot",
+        )
+        assert count2 > 0
 
-            current2 = lh.query(f"SELECT * FROM lakehouse.default.{tbl} WHERE _is_current = true")
-            batch2 = current2[0]["_batch_id"]
-            assert batch2 != batch1
+        current2 = lakehouse.query(f"SELECT * FROM {fqn} WHERE _is_current = true")
+        batch2 = current2[0]["_batch_id"]
+        assert batch2 != batch1
 
-            # Old batch still there
-            old = lh.query(f"SELECT * FROM lakehouse.default.{tbl} WHERE _batch_id = '{batch1}'")
-            assert len(old) == count1
-        finally:
-            lh.close()
+        # Old batch still there
+        old = lakehouse.query(f"SELECT * FROM {fqn} WHERE _batch_id = '{batch1}'")
+        assert len(old) == count1
 
 class TestEventBridgeLakehouseSink:
     """End-to-end: Storable.save() → StoreBridge + LakehouseSink → Lakehouse → DuckDB query."""
@@ -568,6 +530,7 @@ class TestEventBridgeLakehouseSink:
         Events go through Lakehouse.ingest() — same pipeline as all other data.
         """
         import time
+        import uuid as _uuid
 
         from lakehouse import Lakehouse
 
@@ -582,8 +545,13 @@ class TestEventBridgeLakehouseSink:
             user="alice", password="alice_pw",
         )
 
-        # Create Lakehouse + LakehouseSink
-        lh = Lakehouse(catalog_uri=stack.catalog_url, s3_endpoint=stack.s3_endpoint)
+        # Create Lakehouse + LakehouseSink with unique namespace for isolation
+        ns = f"test_eb_{_uuid.uuid4().hex[:8]}"
+        lh = Lakehouse(
+            catalog_uri=stack.catalog_url,
+            s3_endpoint=stack.s3_endpoint,
+            namespace=ns,
+        )
         sink = LakehouseSink(lh)
         bridge = StoreBridge(
             host=info["host"], port=info["port"], dbname=info["dbname"],
@@ -612,9 +580,10 @@ class TestEventBridgeLakehouseSink:
             assert flushed == 3, f"Expected 3 events flushed, got {flushed}"
 
             # Query via DuckDB
-            results = lh.sql("""
+            fqn = lh._fqn("store_events")
+            results = lh.sql(f"""
                 SELECT entity_id, type_name, event_type, version
-                FROM lakehouse.default.store_events
+                FROM {fqn}
                 ORDER BY entity_id
             """)
             assert len(results) >= 3

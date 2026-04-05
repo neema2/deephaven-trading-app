@@ -41,7 +41,7 @@ def _make_tick(symbol="AAPL", price=150.0) -> Tick:
 def _make_fx_tick(pair="USD/JPY", mid=149.55) -> FXTick:
     from datetime import datetime, timezone
     return FXTick(
-        pair=pair, bid=mid - 0.05, ask=mid + 0.05,
+        symbol=pair, pair=pair, bid=mid - 0.05, ask=mid + 0.05,
         mid=mid, spread_pips=1.0, currency="JPY",
         timestamp=datetime.now(timezone.utc),
     )
@@ -50,7 +50,7 @@ def _make_fx_tick(pair="USD/JPY", mid=149.55) -> FXTick:
 def _make_curve_tick(label="USD_5Y", rate=0.041) -> CurveTick:
     from datetime import datetime, timezone
     return CurveTick(
-        label=label, tenor_years=5.0, rate=rate,
+        symbol=label, label=label, tenor_years=5.0, rate=rate,
         discount_factor=1.0 / (1.0 + rate) ** 5.0,
         currency="USD",
         timestamp=datetime.now(timezone.utc),
@@ -407,7 +407,7 @@ class TestSimulatorFeed:
 # ── FastAPI Server Tests ─────────────────────────────────────────────────────
 
 class TestRESTEndpoints:
-    @pytest.fixture
+    @pytest.fixture(scope="class")
     def client(self):
         from fastapi.testclient import TestClient
         from marketdata.server import app
@@ -470,7 +470,7 @@ class TestRESTEndpoints:
 
 
 class TestWebSocket:
-    @pytest.fixture
+    @pytest.fixture(scope="class")
     def client(self):
         from fastapi.testclient import TestClient
         from marketdata.server import app
@@ -512,6 +512,7 @@ class TestWebSocket:
             # Publish a CurveTick via the WS
             ws.send_json({
                 "type": "curve",
+                "symbol": "TEST_5Y",
                 "label": "TEST_5Y",
                 "tenor_years": 5.0,
                 "rate": 0.05,
@@ -533,7 +534,7 @@ class TestWebSocket:
 
 
 class TestPublishEndpoint:
-    @pytest.fixture
+    @pytest.fixture(scope="class")
     def client(self):
         from fastapi.testclient import TestClient
         from marketdata.server import app
@@ -544,6 +545,7 @@ class TestPublishEndpoint:
         from datetime import datetime, timezone
         resp = client.post("/md/publish", json={
             "type": "curve",
+            "symbol": "USD_10Y",
             "label": "USD_10Y",
             "tenor_years": 10.0,
             "rate": 0.04,
@@ -561,6 +563,7 @@ class TestPublishEndpoint:
         from datetime import datetime, timezone
         resp = client.post("/md/publish", json={
             "type": "fx",
+            "symbol": "USD/CHF",
             "pair": "USD/CHF",
             "bid": 0.8800,
             "ask": 0.8810,
