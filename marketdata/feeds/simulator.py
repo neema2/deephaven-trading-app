@@ -60,6 +60,9 @@ class SimulatorFeed(MarketDataFeed):
     def name(self) -> str:
         return "simulator"
 
+    def symbols(self) -> dict[str, list[str]]:
+        return {"equity": list(SYMBOLS), "fx": list(FX_PAIRS)}
+
     async def start(self, bus: TickBus) -> None:
         """Start generating ticks and publishing to the bus."""
         self._stop_event.clear()

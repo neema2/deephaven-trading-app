@@ -731,6 +731,9 @@ await md.start()
 # WS:   ws://localhost:8000/md/subscribe
 ```
 
+**Feeds:** The subprocess reads ``MARKETDATA_FEED``: ``simulator`` (default, synthetic equities + FX) or ``coinbase`` for live [Coinbase Exchange](https://docs.cdp.coinbase.com/exchange/websocket-feed/overview) ticker data (optional ``COINBASE_PRODUCT_IDS``, ``COINBASE_WS_URL``). See ``demo_coinbase.py``.
+
+
 ---
 
 ## Historical Time-Series
@@ -1125,6 +1128,17 @@ python3 demo_ir_swap.py
 Raw append-only tables also published: `fx_raw`, `curve_raw`, `swap_raw`, `portfolio_raw`.
 
 Domain models use `@computed` with override support — set `swap.npv = 500_000` for what-if, then `swap.clear_override("npv")` to revert to formula.
+
+### `demo_coinbase.py` — Coinbase Exchange → Market Data Server → Deephaven
+
+Live crypto tickers via **CoinbaseExchangeFeed** (``MARKETDATA_FEED=coinbase``), same seven published tables as ``demo_trading.py`` (``prices_live``, ``top_movers``, etc.). Requires ``pip install -e ".[streaming,marketdata]"`` and network access. Using Coinbase market data implies their [Market Data Terms of Use](https://www.coinbase.com/legal/market_data).
+
+```bash
+export MARKETDATA_FEED=coinbase   # optional — demo sets this by default
+export COINBASE_PRODUCT_IDS=BTC-USD,ETH-USD,SOL-USD   # optional
+python3 demo_coinbase.py
+# Open http://localhost:10000
+```
 
 ### `demo_bridge.py` — Store + @computed → Deephaven
 

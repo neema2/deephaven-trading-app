@@ -3,6 +3,12 @@ marketdata.admin — Platform API for Market Data Server
 =======================================================
 Start/stop the market data server programmatically, register aliases.
 
+The uvicorn subprocess inherits the parent process environment. To use the
+Coinbase Exchange feed instead of the default simulator, set before ``start()``::
+
+    export MARKETDATA_FEED=coinbase
+    export COINBASE_PRODUCT_IDS=BTC-USD,ETH-USD,SOL-USD   # optional
+
 Platform usage::
 
     from marketdata.admin import MarketDataServer
