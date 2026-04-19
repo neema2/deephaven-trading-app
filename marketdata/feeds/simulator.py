@@ -15,7 +15,7 @@ from typing import Any
 
 from marketdata.bus import TickBus
 from marketdata.feed import MarketDataFeed
-from marketdata.models import FXTick, Tick
+from marketdata.models import FXTick, Tick, SwapTick
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,14 @@ BASE_PRICES = {
 
 # Random starting positions (shares held, negative = short)
 POSITIONS = {sym: random.randint(-500, 500) for sym in SYMBOLS}
+
+SWAP_QUOTES = {
+    "IR_USD_OIS_QUOTE.1Y":  0.011,
+    "IR_USD_OIS_QUOTE.2Y":  0.012,
+    "IR_USD_OIS_QUOTE.5Y":  0.015,
+    "IR_USD_OIS_QUOTE.10Y": 0.020,
+    "IR_USD_OIS_QUOTE.20Y": 0.030,
+}
 
 # ── FX pairs ─────────────────────────────────────────────────────────────────
 
@@ -53,6 +61,7 @@ class SimulatorFeed(MarketDataFeed):
         self._current_fx: dict[str, float] = {
             pair: data["mid"] for pair, data in FX_BASE.items()
         }
+        self._current_swaps: dict[str, float] = dict(SWAP_QUOTES)
         self._stop_event = asyncio.Event()
         self._task: asyncio.Task | None = None
 
@@ -121,6 +130,20 @@ class SimulatorFeed(MarketDataFeed):
                         timestamp=now,
                     )
                     await bus.publish(fx_tick)
+
+                # ── Swap ticks ──────────────────────────────────────────
+                for sym in list(SWAP_QUOTES.keys()):
+                    old = self._current_swaps[sym]
+                    move = random.gauss(0, 0.001)  # 0.1% std dev per tick
+                    new_rate = old * (1 + move)
+                    self._current_swaps[sym] = new_rate
+
+                    swap_tick = SwapTick(
+                        symbol=sym,
+                        rate=new_rate,
+                        timestamp=now,
+                    )
+                    await bus.publish(swap_tick)
 
                 await asyncio.sleep(self._tick_interval)
             except asyncio.CancelledError:

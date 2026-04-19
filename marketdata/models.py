@@ -61,9 +61,17 @@ class CurveTick(BaseModel):
     timestamp: datetime
 
 
+class SwapTick(BaseModel):
+    """A single interest rate swap quote tick."""
+    type: Literal["swap"] = "swap"
+    symbol: str
+    rate: float
+    timestamp: datetime
+
+
 # Discriminated union of all market data message types
 MarketDataMessage = Annotated[
-    Tick | FXTick | CurveTick,
+    Tick | FXTick | CurveTick | SwapTick,
     Field(discriminator="type"),
 ]
 
@@ -76,6 +84,8 @@ def get_symbol_key(msg: Tick | FXTick | CurveTick) -> str:
         return msg.pair
     if isinstance(msg, CurveTick):
         return msg.label
+    if isinstance(msg, SwapTick):
+        return msg.symbol
     raise ValueError(f"Unknown message type: {type(msg)}")
 
 

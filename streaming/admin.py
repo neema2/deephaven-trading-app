@@ -134,10 +134,15 @@ class StreamingServer:
         # DH container always listens on 10000 internally
         internal_port = 10000
 
+        # Map the local lib/jars dir so Deephaven can load and save data
+        jars_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "lib", "jars"))
+        os.makedirs(jars_dir, exist_ok=True)
+        
         cmd = [
             docker, "run", "-d",
             "--name", container_name,
             "-p", f"{self._port}:{internal_port}",
+            "-v", f"{jars_dir}:/apps/libs",
             "-e", f"START_OPTS=-Xmx{self._max_heap} "
                   f"-DAuthHandlers=io.deephaven.auth.AnonymousAuthenticationHandler "
                   f"-Ddeephaven.console.type=python",
@@ -145,9 +150,16 @@ class StreamingServer:
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            raise RuntimeError(
-                f"Failed to start Deephaven Docker container: {result.stderr}"
-            )
+            err_msg = f"Failed to start Deephaven Docker container: {result.stderr}"
+            if "permission denied" in result.stderr.lower():
+                err_msg += (
+                    "\n\n[HINT] Docker permission denied! Your user is not in the 'docker' group.\n"
+                    "To fix this permanently, run the following command:\n"
+                    "    sudo usermod -aG docker $USER\n"
+                    "Then log out and log back in (or run 'newgrp docker').\n"
+                    "Alternatively, run your script with: sg docker -c 'python your_script.py'"
+                )
+            raise RuntimeError(err_msg)
         self._container_id = result.stdout.strip()
 
         # Health-check: wait for the gRPC port to accept connections

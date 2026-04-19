@@ -269,7 +269,7 @@ async def websocket_subscribe(ws: WebSocket) -> None:
         while True:
             data = await ws.receive_json()
             # If message has a 'type' field with a known asset type → publish
-            if "type" in data and data["type"] in ("equity", "fx", "curve"):
+            if "type" in data and data["type"] in ("equity", "fx", "curve", "swap"):
                 from pydantic import TypeAdapter
                 adapter: TypeAdapter[MarketDataMessage] = TypeAdapter(MarketDataMessage)
                 msg = adapter.validate_python(data)

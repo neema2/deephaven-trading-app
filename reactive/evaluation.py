@@ -15,6 +15,7 @@ class PillarContext(dict):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.version = 0
+        self.is_solving = False
 
     def __setitem__(self, key, value):
         if self.get(key) != value:
