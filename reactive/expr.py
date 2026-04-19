@@ -37,28 +37,111 @@ class Expr(ABC):
     def to_json(self) -> dict:
         """Serialize to a JSON-compatible dict."""
 
+    @property
+    def variables(self) -> frozenset[str]:
+        """Return the set of all Variable dependencies within this expression."""
+        if not hasattr(self, "_variables"):
+            vset = set()
+            stack = [self]
+            while stack:
+                node = stack.pop()
+                if hasattr(node, "expr_eval") and hasattr(node, "name"):
+                    vset.add(node.name)
+                elif hasattr(node, "left") and hasattr(node, "right"): # BinOp
+                    stack.extend([node.left, node.right])
+                elif hasattr(node, "args"): # Func
+                    stack.extend(node.args)
+                elif hasattr(node, "condition"): # If
+                    stack.extend([node.condition, node.then_, node.else_])
+                elif hasattr(node, "terms"): # Sum
+                    stack.extend(node.terms)
+                elif hasattr(node, "exprs"): # Coalesce
+                    stack.extend(node.exprs)
+                elif hasattr(node, "operand"): # UnaryOp, IsNull, StrOp
+                    stack.append(node.operand)
+            self._variables = frozenset(vset)
+        return self._variables
+
     # -- Arithmetic operators ------------------------------------------------
 
     def __add__(self, other: object) -> "Expr":
-        return BinOp("+", self, _wrap(other))
+        r = _wrap(other)
+        if isinstance(self, Const) and self.value == 0: return r
+        if isinstance(r, Const) and r.value == 0: return self
+        
+        # Constant folding
+        if isinstance(self, Const) and isinstance(r, Const):
+            if isinstance(self.value, (int, float)) and isinstance(r.value, (int, float)):
+                return Const(self.value + r.value)
+
+        # Optimization: Flatten Sums
+        from .sum_expr import Sum
+        if isinstance(self, Sum) or isinstance(r, Sum):
+            terms = []
+            if isinstance(self, Sum): terms.extend(self.terms)
+            else: terms.append(self)
+            if isinstance(r, Sum): terms.extend(r.terms)
+            else: terms.append(r)
+            return Sum(terms)
+
+        # Default: upgrade to Sum for depth-1 optimization
+        return Sum([self, r])
 
     def __radd__(self, other: object) -> "Expr":
-        return BinOp("+", _wrap(other), self)
+        return _wrap(other) + self
 
     def __sub__(self, other: object) -> "Expr":
-        return BinOp("-", self, _wrap(other))
+        r = _wrap(other)
+        if isinstance(r, Const) and r.value == 0: return self
+        
+        # Constant folding
+        if isinstance(self, Const) and isinstance(r, Const):
+            if isinstance(self.value, (int, float)) and isinstance(r.value, (int, float)):
+                return Const(self.value - r.value)
+                
+        # 0 - x -> -x
+        if isinstance(self, Const) and self.value == 0:
+            return -r
+            
+        return BinOp("-", self, r)
 
     def __rsub__(self, other: object) -> "Expr":
-        return BinOp("-", _wrap(other), self)
+        return _wrap(other) - self
 
     def __mul__(self, other: object) -> "Expr":
-        return BinOp("*", self, _wrap(other))
+        r = _wrap(other)
+        if isinstance(self, Const):
+            if self.value == 0: return Const(0.0)
+            if self.value == 1: return r
+        if isinstance(r, Const):
+            if r.value == 0: return Const(0.0)
+            if r.value == 1: return self
+            
+        # Constant folding
+        if isinstance(self, Const) and isinstance(r, Const):
+            if isinstance(self.value, (int, float)) and isinstance(r.value, (int, float)):
+                return Const(self.value * r.value)
+
+        return BinOp("*", self, r)
 
     def __rmul__(self, other: object) -> "Expr":
-        return BinOp("*", _wrap(other), self)
+        return _wrap(other) * self
 
     def __truediv__(self, other: object) -> "Expr":
-        return BinOp("/", self, _wrap(other))
+        r = _wrap(other)
+        if isinstance(r, Const):
+            if r.value == 1: return self
+            if r.value == 0: return Const(0.0) # avoid div by zero in trees
+            
+        # Constant folding
+        if isinstance(self, Const) and isinstance(r, Const):
+            if isinstance(self.value, (int, float)) and isinstance(r.value, (int, float)):
+                if r.value != 0:
+                    return Const(self.value / r.value)
+                    
+        if isinstance(self, Const) and self.value == 0:
+            return Const(0.0)
+        return BinOp("/", self, r)
 
     def __rtruediv__(self, other: object) -> "Expr":
         return BinOp("/", _wrap(other), self)
@@ -156,9 +239,17 @@ class Expr(ABC):
 # ---------------------------------------------------------------------------
 
 def _wrap(value: object) -> Expr:
-    """Wrap a Python literal as a Const if it's not already an Expr."""
+    """Wrap a Python literal as a Const if it's not already an Expr.
+
+    Supports the ``__expr__`` protocol: if *value* defines ``__expr__()``,
+    the returned Expr is used directly.  This enables transparent
+    interop between ``TracedFloat`` / ``_TracedCallable`` and the Expr tree.
+    """
     if isinstance(value, Expr):
         return value
+    _get_expr = getattr(value, "__expr__", None)
+    if _get_expr is not None:
+        return _get_expr()
     return Const(value)
 
 
@@ -231,6 +322,61 @@ class Field(Expr):
         return {"type": "Field", "name": self.name}
 
 
+class VariableMixin:
+    """Mixin: any object with a `.name` attribute gains Expr-leaf behaviour.
+
+    This is the bridge between domain objects and the Expr tree. A class
+    that mixes this in can be used directly as a leaf node in expression
+    trees, supporting eval/to_sql/to_pure/diff.
+
+    The mixin does NOT inherit from Expr (to avoid operator-overloading
+    conflicts with @dataclass).  Instead, diff() and eval_cached() check
+    for isinstance(x, VariableMixin).
+    """
+
+    # Subclass must provide: self.name (str)
+
+    def expr_eval(self, ctx: dict) -> Any:
+        return ctx[self.name]
+
+    def expr_to_sql(self, col: str = "data") -> str:
+        return f'"{self.name}"'
+
+    def expr_to_pure(self, var: str = "$row") -> str:
+        return f"${self.name}"
+
+    def expr_to_json(self) -> dict:
+        return {"type": "Variable", "name": self.name}
+
+
+class Variable(Expr, VariableMixin):
+    """Standalone Expr leaf for a named variable (e.g. a market quote or pillar).
+
+    For domain objects (like YieldCurvePoint), prefer mixing in
+    VariableMixin directly so the object IS the leaf node.
+    This class exists for cases where you need a standalone leaf.
+    """
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def eval(self, ctx: dict) -> Any:
+        return self.expr_eval(ctx)
+
+    def to_sql(self, col: str = "data") -> str:
+        return self.expr_to_sql(col)
+
+    def to_pure(self, var: str = "$row") -> str:
+        return self.expr_to_pure(var)
+
+    def to_json(self) -> dict:
+        return self.expr_to_json()
+
+    def __repr__(self) -> str:
+        return f"Variable({self.name!r})"
+
+
+
 # ---------------------------------------------------------------------------
 # Composite nodes
 # ---------------------------------------------------------------------------
@@ -299,6 +445,7 @@ class BinOp(Expr):
             "left": self.left.to_json(),
             "right": self.right.to_json(),
         }
+
 
 
 class UnaryOp(Expr):
@@ -370,6 +517,7 @@ class Func(Expr):
         "log": "log", "exp": "exp", "min": "min", "max": "max",
     }
 
+
     def __init__(self, name: str, args: list) -> None:
         self.name = name
         self.args = [_wrap(a) for a in args]
@@ -379,7 +527,16 @@ class Func(Expr):
         if fn is None:
             raise ValueError(f"Unknown function: {self.name}")
         evaluated = [a.eval(ctx) for a in self.args]
-        return fn(*evaluated)
+        try:
+             if self.name == "exp" and evaluated[0] > 700:
+                 return 1e100
+             if self.name == "exp" and evaluated[0] < -700:
+                 return 0.0
+             return fn(*evaluated)
+        except (OverflowError, FloatingPointError):
+             if self.name == "exp":
+                 return 1e100 if evaluated[0] > 0 else 0.0
+             return 1e100 # Fallback
 
     def to_sql(self, col: str = "data") -> str:
         sql_name = self._SQL_FUNCS.get(self.name, self.name.upper())
@@ -397,6 +554,28 @@ class Func(Expr):
             "name": self.name,
             "args": [a.to_json() for a in self.args],
         }
+
+
+# -- Convenience builders for common functions --------------------------------
+
+def Exp(x) -> Expr:
+    """exp(x) — builds a Func('exp', [x]) node.
+
+    Preferred over Const(math.e) ** x because:
+      - diff() handles Func('exp') directly: d/dx exp(f) = exp(f) * f'
+      - SQL compiles to EXP() (single instruction) instead of POWER()
+      - The derivative reuses the same exp(f) node (DAG sharing)
+    """
+    return Func("exp", [x])
+
+
+def Log(x) -> Expr:
+    """log(x) — builds a Func('log', [x]) node (natural logarithm).
+
+    diff() handles: d/dx log(f) = f' / f
+    SQL compiles to LN().
+    """
+    return Func("log", [x])
 
 
 class If(Expr):
@@ -568,10 +747,16 @@ class StrOp(Expr):
 # SQL helper
 # ---------------------------------------------------------------------------
 
-def _cast_numeric_sql(expr: Expr, col: str) -> str:
-    """If expr is a Field, cast the JSONB text extraction to float."""
+def _cast_numeric_sql(expr, col: str) -> str:
+    """If expr is a Field, cast the JSONB text extraction to float.
+    For constants, ensure they are treated as DOUBLE to avoid precision overflows in SQL engines.
+    """
     if isinstance(expr, Field):
         return f"({col}->>'{expr.name}')::float"
+    if isinstance(expr, VariableMixin):
+        return expr.expr_to_sql(col)
+    if isinstance(expr, Const) and isinstance(expr.value, (int, float)):
+        return f"CAST({expr.value} AS DOUBLE)"
     return expr.to_sql(col)
 
 
@@ -582,6 +767,7 @@ def _cast_numeric_sql(expr: Expr, col: str) -> str:
 _NODE_REGISTRY = {
     "Const": Const,
     "Field": Field,
+    "Variable": Variable,
     "BinOp": BinOp,
     "UnaryOp": UnaryOp,
     "Func": Func,
@@ -630,4 +816,19 @@ def from_json(data: dict) -> Expr:
         node = StrOp(op, operand, arg)
         return node
 
+    from .sum_expr import Sum
+    if node_type == "Sum":
+        return Sum([from_json(t) for t in data["terms"]])
+
     raise ValueError(f"Unknown expression type: {node_type}")
+
+
+
+
+
+# ---------------------------------------------------------------------------
+# Backwards compatibility exports
+# ---------------------------------------------------------------------------
+from .sum_expr import Sum
+from .calculus import diff
+from .evaluation import eval_cached
