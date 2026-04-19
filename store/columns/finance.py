@@ -615,3 +615,117 @@ REGISTRY.define("top_risk_contributors", list,
     role="attribute",
     category="risk",
 )
+
+REGISTRY.define("fitted_rate", float,
+    description="The interest rate solved/fitted by a curve fitter",
+    semantic_type="percentage",
+    role="measure",
+    unit="ratio",
+    format=".4%",
+    display_name="Fitted Rate",
+    category="fixed_income",
+)
+
+REGISTRY.define("is_fitted", bool,
+    description="Flag indicating if this pillar is an active fitting target",
+    semantic_type="boolean_flag",
+    role="attribute",
+    display_name="Is Fitted",
+    category="fixed_income",
+)
+
+REGISTRY.define("collateral_currency", str,
+    description="Currency of the collateral used for discounting",
+    semantic_type="identifier",
+    role="dimension",
+    max_length=3,
+    category="fx",
+)
+
+REGISTRY.define("discount_curve", object,
+    description="Curve used for discounting cash flows",
+    role="attribute",
+    category="fixed_income",
+)
+
+REGISTRY.define("projection_curve", object,
+    description="Curve used for projecting forward rates",
+    role="attribute",
+    category="fixed_income",
+)
+
+REGISTRY.define("is_target", bool,
+    description="Flag indicating if this instrument is a fitter target",
+    role="attribute",
+    category="fixed_income",
+)
+
+REGISTRY.define("float_spread", float,
+    description="Spread added to the floating leg reference rate",
+    role="measure", unit="ratio",
+    category="fixed_income",
+)
+
+REGISTRY.define("quote_ref", object,
+    description="Reference to the market quote object",
+    role="attribute",
+    category="market_data",
+)
+
+
+
+REGISTRY.define("curve", object,
+    description="Associated yield curve",
+    role="attribute",
+    category="fixed_income",
+)
+
+REGISTRY.define("output_tenor", float,
+    description="The output tenor of a Jacobian entry",
+    role="measure", unit="years",
+    category="fixed_income",
+)
+
+REGISTRY.define("input_tenor", float,
+    description="The input tenor of a Jacobian entry",
+    role="measure", unit="years",
+    category="fixed_income",
+)
+
+REGISTRY.define("quote_symbol", str,
+    description="Symbol of the source quote for Jacobian",
+    role="dimension",
+    category="market_data",
+)
+
+REGISTRY.define("points", list,
+    description="List of curve pillar points",
+    role="attribute",
+    category="fixed_income",
+)
+
+REGISTRY.define("jacobian", list,
+    description="The Jacobian matrix (list of entries) for the curve",
+    role="attribute",
+    category="fixed_income",
+)
+
+# ── Computed / Traceable Properties ──────────────────────────────
+
+REGISTRY.define("point_count", int, description="Number of knots in the curve", role="measure", unit="units", category="fixed_income")
+REGISTRY.define("pillar_tenors", list, description="List of tenors for the pillars", role="attribute", category="fixed_income")
+REGISTRY.define("pillar_rates", list, description="List of rates for the pillars", role="attribute", category="fixed_income")
+REGISTRY.define("pillar_names", list, description="List of names for the pillars", role="attribute", category="fixed_income")
+
+REGISTRY.define("risk_ladder", dict, description="Traceable risk dictionary (ladder)", role="attribute", category="risk")
+REGISTRY.define("par_rate", float, description="The swap par rate", role="measure", unit="ratio", category="fixed_income")
+
+
+REGISTRY.define("target_swaps", list, description="Target swaps for fitting", role="attribute", category="fixed_income")
+REGISTRY.define("quotes", list, description="Input quotes for fitting", role="attribute", category="market_data")
+REGISTRY.define("quote_trigger", float, description="Signal to trigger re-fits", role="measure", unit="ratio", category="market_data")
+
+REGISTRY.define("tenor", float, description="Instrument tenor in years", role="measure", unit="years", category="fixed_income")
+REGISTRY.define("portfolio", str, description="Portfolio identifier", role="dimension", category="portfolio")
+REGISTRY.define("quote", str, description="Quote identifier", role="dimension", category="market_data")
+REGISTRY.define("equiv_notional", float, description="Equivalent notional for risk mapping", role="measure", unit="USD", category="risk")

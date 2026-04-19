@@ -127,8 +127,9 @@ class LiveTable:
 
     __slots__ = ("_table",)
 
-    def __init__(self, dh_table: Any) -> None:
+    def __init__(self, dh_table: Any, name: str | None = None) -> None:
         self._table = dh_table
+        self._name = name
 
     # -- helpers ----------------------------------------------------------
 
@@ -188,6 +189,10 @@ class LiveTable:
         """Filter rows."""
         return self._derive(self._table.where, filters)
 
+    def format_columns(self, formats: str | list[str]) -> LiveTable:
+        """Format columns."""
+        return self._derive(self._table.format_columns, formats)
+
     # -- output -----------------------------------------------------------
 
     def publish(self, name: str) -> None:
@@ -238,18 +243,26 @@ class TickingTable(LiveTable):
     ``sort_descending``, ``snapshot``, ``publish``, etc.
     """
 
-    __slots__ = ("_writer",)
+    __slots__ = ("_writer", "_schema")
 
-    def __init__(self, schema: dict[str, type]) -> None:
+    def __init__(self, schema: dict[str, type], name: str | None = None) -> None:
         from deephaven import DynamicTableWriter
 
+        self._schema = schema
         dh_schema = _resolve_schema(schema)
         self._writer = DynamicTableWriter(dh_schema)
-        super().__init__(self._writer.table)
+        super().__init__(self._writer.table, name=name)
+
 
     def write_row(self, *values: Any) -> None:
         """Write a single row.  Thread-safe per Deephaven docs."""
-        self._writer.write_row(*values)
+        cleaned = []
+        for col_name, v in zip(self._schema.keys(), values):
+            if v is not None and self._schema[col_name] in (dict, list, object):
+                cleaned.append(str(v))
+            else:
+                cleaned.append(v)
+        self._writer.write_row(*cleaned)
 
     def flush(self) -> None:
         """Flush the update graph so pending writes are visible."""
@@ -295,8 +308,10 @@ if _REMOTE:
     # -- Name generator for server-side variables -------------------------
     _name_counter = itertools.count()
 
-    def _next_name(prefix: str = "_tt") -> str:
+    def _next_name(prefix: str = "__tt") -> str:
         return f"{prefix}_{next(_name_counter)}"
+
+
 
     # -- Python type → DH type string mapping for run_script --------------
     _PY_TO_DH_STR = {
@@ -317,9 +332,10 @@ if _REMOTE:
             self._name = name
 
         def _derive_remote(self, op: str) -> RemoteLiveTable:
-            new = _next_name("_lt")
+            new = _next_name("__lt")
             _get_session().run_script(f"{new} = {self._name}.{op}")
             return RemoteLiveTable(new)
+
 
         def last_by(self, by):
             return self._derive_remote(f"last_by({by!r})")
@@ -364,6 +380,9 @@ if _REMOTE:
         def where(self, filters):
             return self._derive_remote(f"where({filters!r})")
 
+        def format_columns(self, formats):
+            return self._derive_remote(f"format_columns({formats!r})")
+
         def publish(self, name: str) -> None:
             # Table already lives server-side; just alias it
             _get_session().run_script(f"{name} = {self._name}")
@@ -385,9 +404,11 @@ if _REMOTE:
 
         __slots__ = ("_writer_name", "_schema")
 
-        def __init__(self, schema: dict[str, type]) -> None:
+        def __init__(self, schema: dict[str, type], name: str | None = None) -> None:
             self._schema = schema
-            name = _next_name("_tt")
+            if name is None:
+                name = _next_name("_tt")
+            
             writer_name = f"{name}_w"
 
             # Build the server-side DynamicTableWriter creation script
@@ -409,16 +430,41 @@ if _REMOTE:
 
         def write_row(self, *values: Any) -> None:
             parts = []
-            for v in values:
-                if isinstance(v, datetime):
+            for col_name, v in zip(self._schema.keys(), values):
+                if v is None:
+                    parts.append("None")
+                elif isinstance(v, datetime):
                     # Convert to ISO format string and parse server-side
                     parts.append(f"to_j_instant('{v.isoformat()}')")
+                elif self._schema[col_name] is str:
+                    parts.append(repr(str(v)))
+                elif self._schema[col_name] is float:
+                    try:
+                        # Handle Expr or other numeric-like objects
+                        parts.append(repr(float(v)))
+                    except (TypeError, ValueError):
+                        # Fallback for complex objects that can't be floatified
+                        # (like a Sum expression that somehow leaked through)
+                        parts.append("0.0")
+                elif self._schema[col_name] is int:
+                    try:
+                        parts.append(repr(int(v)))
+                    except (TypeError, ValueError):
+                        parts.append("0")
+                elif self._schema[col_name] is bool:
+                    parts.append(repr(bool(v)))
+                elif self._schema[col_name] in (dict, list, object):
+                    parts.append(repr(str(v)))
                 else:
-                    parts.append(repr(v))
+                    parts.append(repr(str(v)))
+
             vals = ", ".join(parts)
             _get_session().run_script(
                 f"{self._writer_name}.write_row({vals})"
             )
+
+
+
 
         def flush(self) -> None:
             # Remote DH auto-flushes; no-op
