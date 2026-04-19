@@ -198,7 +198,11 @@ class Storable(ActiveRecordMixin):
                 cp = attr
                 override_sig = Signal(_UNSET)
 
-                if cp.expr is not None:
+                # Traceable functions have their own dual-mode lazy evaluation native hook.
+                # Skip AST compilation overwrite for them.
+                is_traceable = attr.__class__.__name__ == "traceable"
+
+                if cp.expr is not None and not is_traceable:
                     # Single-entity: evaluate Expr against signal values
                     def _make_single(expression: Any, sigs: dict, ov_sig: Signal) -> Callable[[], Any]:
                         def compute() -> Any:
@@ -212,12 +216,11 @@ class Storable(ActiveRecordMixin):
                 else:
                     # Cross-entity: call original function with reactive proxy
                     def _make_cross(func: Callable[..., Any], obj: Any, ov_sig: Signal) -> Callable[[], Any]:
-                        proxy = _ReactiveProxy(obj)
                         def compute() -> Any:
                             ov = ov_sig()
                             if ov is not _UNSET:
                                 return ov
-                            return func(proxy)
+                            return func(obj)
                         return compute
                     comp = Computed(_make_cross(cp.fn, self, override_sig))
 
@@ -260,9 +263,24 @@ class Storable(ActiveRecordMixin):
 
     def __getattribute__(self, name: str) -> Any:
         """Route reactive field/computed reads through Signals/Computeds."""
-        node = object.__getattribute__(self, '_reactive').get(name)
+        # Avoid recursion on _reactive
+        if name == "_reactive" or name.startswith("__"):
+            return object.__getattribute__(self, name)
+            
+        reactive = object.__getattribute__(self, '_reactive')
+        node = reactive.get(name)
         if node is not None:
-            return node.read()
+            val = node.read()
+            # If tracing is active, rebuild structural tracing identity seamlessly
+            # bridging standard numerical evaluation cached out of reaktiv correctly 
+            from reactive.traced import _is_tracing
+            if _is_tracing():
+                desc = getattr(self.__class__, name, None)
+                if hasattr(desc, "_trace_for_expr"):
+                    from reactive.traced import TracedFloat
+                    if isinstance(val, (int, float)):
+                        return TracedFloat(float(val), desc._trace_for_expr(self))
+            return val
         return object.__getattribute__(self, name)
 
     def __setattr__(self, name: str, value: object) -> None:
